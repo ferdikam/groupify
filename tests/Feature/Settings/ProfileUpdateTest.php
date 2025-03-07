@@ -3,7 +3,6 @@
 use App\Livewire\Settings\Profile;
 use App\Models\User;
 use Livewire\Livewire;
-use Livewire\Volt\Volt;
 
 uses(\Illuminate\Foundation\Testing\RefreshDatabase::class);
 

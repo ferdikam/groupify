@@ -1,0 +1,27 @@
+<?php
+
+use App\Models\Produit;
+use App\Models\User;
+
+test('Un administrateur peut créer un groupage', function () {
+    $admin = User::factory()->create(['role' => 'admin']);
+    $produit = Produit::factory()->create();
+    $this->actingAs($admin);
+
+    $groupageData = [
+        'nom' => 'Groupage Test',
+        'description' => 'Description du groupage de test',
+        'date_debut' => now()->format('Y-m-d H:i:s'),
+        'date_fin' => now()->addDays(21)->format('Y-m-d H:i:s'),
+        'statut' => 'actif',
+        'produit_id' => $produit->id,
+    ];
+
+    $response = $this->post(route('groupages.store'), $groupageData);
+
+    // $response->assertStatus(201);
+    $this->assertDatabaseHas('groupages', [
+        'nom' => 'Groupage Test',
+        'produit_id' => $produit->id,
+    ]);
+});
