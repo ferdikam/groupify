@@ -25,3 +25,26 @@ test('Un administrateur peut créer un groupage', function () {
         'produit_id' => $produit->id,
     ]);
 });
+
+test('un utilisateur standard ne peut pas créer un groupage', function () {
+    // Arrange
+    $user = User::factory()->create(['role' => 'souscripteur']);
+    $produit = Produit::factory()->create();
+
+    $groupageData = [
+        'nom' => 'Groupage Test',
+        'description' => 'Description du groupage de test',
+        'date_debut' => now()->format('Y-m-d H:i:s'),
+        'date_fin' => now()->addDays(21)->format('Y-m-d H:i:s'),
+        'statut' => 'actif',
+        'produit_id' => $produit->id,
+    ];
+
+    // Act
+    $response = $this
+        ->actingAs($user)
+        ->post(route('groupages.store'), $groupageData);
+
+    // Assert
+    $response->assertStatus(403);
+});
