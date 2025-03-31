@@ -2,8 +2,9 @@
 
 namespace App\Http\Controllers\Groupage;
 
+use App\Actions\CreateGroupageAction;
 use App\Http\Controllers\Controller;
-use App\Models\Groupage;
+use App\Http\Requests\CreateGroupageRequest;
 use Illuminate\Http\Request;
 
 class StoreController extends Controller
@@ -11,18 +12,19 @@ class StoreController extends Controller
     /**
      * Handle the incoming request.
      */
-    public function __invoke(Request $request)
+    public function __invoke(CreateGroupageRequest $request, CreateGroupageAction $createGroupageAction)
     {
         if (! $request->user()->isAdmin()) {
             abort(403);
         }
-        Groupage::create([
-            'nom' => $request->input('nom'),
-            'description' => $request->input('description'),
-            'date_debut' => $request->input('date_debut'),
-            'date_fin' => $request->input('date_fin'),
-            'statut' => $request->input('statut'),
-            'produit_id' => $request->input('produit_id'),
-        ]);
+
+        $createGroupageAction($request->only([
+            'nom',
+            'description',
+            'date_debut',
+            'date_fin',
+            'statut',
+            'produit_id',
+        ]));
     }
 }

@@ -7,10 +7,8 @@ use App\Models\User;
 uses(\Illuminate\Foundation\Testing\RefreshDatabase::class);
 
 test('Un administrateur peut créer un groupage', function () {
-    $admin = User::factory()->create(['role' => 'admin']);
     $produit = Produit::factory()->create();
-    $this->actingAs($admin);
-
+    loginAdmin();
     $groupageData = [
         'nom' => 'Groupage Test',
         'description' => 'Description du groupage de test',
@@ -71,4 +69,23 @@ test('les administrateurs peuvent voir la liste des groupages', function () {
         ->assertSee($groupage->date_debut)
         ->assertSee($groupage->date_fin)
         ->assertSee($groupage->statut);
+});
+
+it('valide les champs obligatoires du formulaire de création de groupage', function () {
+    // Arrange
+    $admin = User::factory()->create(['role' => 'admin']);
+
+    // Créer des groupages avec différents statuts
+    $groupage = Groupage::factory()->create();
+
+    $response = $this
+        ->actingAs($admin)
+        ->post(route('groupages.store'), []);
+
+    $response->assertSessionHasErrors([
+        'nom',
+        'date_debut',
+        'date_fin',
+        'produit_id',
+    ]);
 });

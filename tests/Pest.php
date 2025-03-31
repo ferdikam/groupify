@@ -11,6 +11,10 @@
 |
 */
 
+use App\Models\User;
+
+use function Pest\Laravel\actingAs;
+
 pest()->extend(Tests\TestCase::class)
     ->use(Illuminate\Foundation\Testing\RefreshDatabase::class)
     ->in('Feature');
@@ -41,7 +45,17 @@ expect()->extend('toBeOne', function () {
 |
 */
 
-function something()
+function login(?User $user = null): void
 {
-    // ..
+    actingAs($user ?? User::factory()->create());
+}
+
+function loginAdmin(): void
+{
+    login(User::factory()->create(['role' => 'admin']));
+}
+
+function loginSouscripteur(): void
+{
+    login(User::factory()->create(['role' => 'admin']));
 }
