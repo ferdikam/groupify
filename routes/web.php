@@ -1,7 +1,6 @@
 <?php
 
-use App\Http\Controllers\Groupage\IndexController;
-use App\Http\Controllers\Groupage\StoreController;
+use App\Http\Controllers\Groupage\GroupagesController;
 use App\Livewire\Settings\Appearance;
 use App\Livewire\Settings\Password;
 use App\Livewire\Settings\Profile;
@@ -17,8 +16,10 @@ Route::view('dashboard', 'dashboard')
 
 Route::middleware(['auth'])->group(function () {
 
-    Route::get('/groupages', IndexController::class)->name('groupages.index');
-    Route::post('/groupages', StoreController::class)->name('groupages.store');
+    Route::get('/groupages', [GroupagesController::class, 'index'])->name('groupages.index');
+    Route::get('/groupages/create', [GroupagesController::class, 'create'])->name('groupages.create');
+    Route::post('/groupages', [GroupagesController::class, 'store'])->name('groupages.store');
+    Route::get('/groupages/{groupage}', [GroupagesController::class, 'show'])->name('groupages.show');
 
     Route::redirect('settings', 'settings/profile');
 

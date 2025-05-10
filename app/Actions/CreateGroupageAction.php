@@ -2,6 +2,7 @@
 
 namespace App\Actions;
 
+use App\Enums\GroupageStatus;
 use App\Models\Groupage;
 
 final readonly class CreateGroupageAction
@@ -10,10 +11,10 @@ final readonly class CreateGroupageAction
     {
         return Groupage::create([
             'nom' => $data['nom'],
-            'description' => $data['description'],
+            'description' => $data['description'] ?? '',
             'date_debut' => $data['date_debut'],
             'date_fin' => $data['date_fin'],
-            'statut' => $data['statut'],
+            'statut' => $data['statut'] ?? GroupageStatus::DRAFT,
             'produit_id' => $data['produit_id'],
         ]);
     }

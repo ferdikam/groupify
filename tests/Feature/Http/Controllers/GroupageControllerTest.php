@@ -71,6 +71,12 @@ test('les administrateurs peuvent voir la liste des groupages', function () {
         ->assertSee($groupage->statut);
 });
 
+test('page de creation de groupage est affichée', function () {
+    loginAdmin();
+
+    $this->get('/groupages/create')->assertOk();
+});
+
 it('valide les champs obligatoires du formulaire de création de groupage', function () {
     // Arrange
     $admin = User::factory()->create(['role' => 'admin']);
