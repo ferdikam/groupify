@@ -15,6 +15,4 @@ class Groupage extends Model
     {
         return $this->belongsTo(Produit::class, 'produit_id');
     }
-
-
 }
