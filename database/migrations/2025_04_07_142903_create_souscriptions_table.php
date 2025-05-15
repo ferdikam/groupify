@@ -16,10 +16,10 @@ return new class extends Migration
             $table->foreignId('user_id')->constrained()->onDelete('cascade');
             $table->foreignId('groupage_id')->constrained()->onDelete('cascade');
             $table->integer('quantite');
-            $table->decimal('montant_total', 10, 2);
-            $table->decimal('avance_payee', 10, 2)->default(0);
-            $table->decimal('solde_restant', 10, 2);
-            $table->enum('statut', ['en_attente', 'paye_partiellement', 'paye_totalement', 'livre'])->default('en_attente');
+            $table->unsignedBigInteger('montant_total')->nullable();
+            $table->unsignedBigInteger('avance_payee')->nullable();
+            $table->unsignedBigInteger('solde_restant')->nullable();
+            $table->string('statut')->default('en_attente')->comment("['en_attente', 'paye_partiellement', 'paye_totalement', 'livre']");
             $table->dateTime('date_livraison_souhaitee')->nullable();
             $table->text('lieu_livraison')->nullable();
             $table->timestamps();

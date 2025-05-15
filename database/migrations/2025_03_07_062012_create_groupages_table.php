@@ -18,7 +18,6 @@ return new class extends Migration
             $table->dateTime('date_debut');
             $table->dateTime('date_fin');
             $table->string('statut');
-            $table->foreignIdFor(\App\Models\Produit::class)->constrained();
             $table->timestamps();
         });
     }
