@@ -16,4 +16,9 @@ class ViewProduit extends ViewRecord
             Actions\EditAction::make(),
         ];
     }
+
+    public function getTitle(): string
+    {
+        return "Produit : {$this->record->nom}";
+    }
 }

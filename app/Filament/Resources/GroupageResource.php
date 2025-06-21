@@ -23,6 +23,10 @@ class GroupageResource extends Resource
 
     protected static ?string $navigationIcon = 'heroicon-o-rectangle-stack';
 
+    protected static ?int $navigationSort = 4;
+
+
+
     public static function form(Form $form): Form
     {
         return $form
@@ -31,16 +35,16 @@ class GroupageResource extends Resource
                     ->schema([
                         Forms\Components\TextInput::make('nom')
                             ->required(),
-                        Forms\Components\Textarea::make('description')
-                            ->required()
-                            ->columnSpanFull(),
-                        Forms\Components\DateTimePicker::make('date_debut')
+                        Forms\Components\DatePicker::make('date_debut')
                             ->required(),
-                        Forms\Components\DateTimePicker::make('date_fin')
+                        Forms\Components\DatePicker::make('date_fin')
                             ->required(),
                         Forms\Components\Select::make('statut')
                             ->options(GroupageStatus::class)
                             ->required(),
+                        Forms\Components\Textarea::make('description')
+                            ->required()
+                            ->columnSpanFull(),
                     ])->columns(3),
 
                 Forms\Components\Section::make()
@@ -49,6 +53,9 @@ class GroupageResource extends Resource
                             ->relationship()
                             ->schema([
                                 Forms\Components\Select::make('produit_id')
+                                    ->label('Produit')
+                                    ->searchable()
+                                    ->preload()
                                     ->options(Produit::all()->pluck('nom', 'id')),
                                 Forms\Components\TextInput::make('moq')
                                     ->default(0)
@@ -168,7 +175,8 @@ class GroupageResource extends Resource
     public static function getRelations(): array
     {
         return [
-            RelationManagers\ProduitsRelationManager::class
+            RelationManagers\ProduitsRelationManager::class,
+            //RelationManagers\SouscriptionsRelationManager::class,
         ];
     }
 

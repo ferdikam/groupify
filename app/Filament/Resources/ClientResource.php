@@ -2,9 +2,9 @@
 
 namespace App\Filament\Resources;
 
-use App\Filament\Resources\FournisseurResource\Pages;
-use App\Filament\Resources\FournisseurResource\RelationManagers;
-use App\Models\Fournisseur;
+use App\Filament\Resources\ClientResource\Pages;
+use App\Filament\Resources\ClientResource\RelationManagers;
+use App\Models\Client;
 use Filament\Forms;
 use Filament\Forms\Form;
 use Filament\Resources\Resource;
@@ -13,14 +13,11 @@ use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\SoftDeletingScope;
 
-class FournisseurResource extends Resource
+class ClientResource extends Resource
 {
-    protected static ?string $model = Fournisseur::class;
+    protected static ?string $model = Client::class;
 
     protected static ?string $navigationIcon = 'heroicon-o-rectangle-stack';
-
-    protected static ?int $navigationSort = 2;
-
 
     public static function form(Form $form): Form
     {
@@ -28,6 +25,14 @@ class FournisseurResource extends Resource
             ->schema([
                 Forms\Components\TextInput::make('nom')
                     ->required(),
+                Forms\Components\TextInput::make('prenoms')
+                    ->required(),
+                Forms\Components\TextInput::make('adresse'),
+                Forms\Components\TextInput::make('telephone')
+                    ->tel()
+                    ->required(),
+                Forms\Components\TextInput::make('email')
+                    ->email(),
             ]);
     }
 
@@ -36,6 +41,14 @@ class FournisseurResource extends Resource
         return $table
             ->columns([
                 Tables\Columns\TextColumn::make('nom')
+                    ->searchable(),
+                Tables\Columns\TextColumn::make('prenoms')
+                    ->searchable(),
+                Tables\Columns\TextColumn::make('adresse')
+                    ->searchable(),
+                Tables\Columns\TextColumn::make('telephone')
+                    ->searchable(),
+                Tables\Columns\TextColumn::make('email')
                     ->searchable(),
                 Tables\Columns\TextColumn::make('created_at')
                     ->dateTime()
@@ -70,10 +83,10 @@ class FournisseurResource extends Resource
     public static function getPages(): array
     {
         return [
-            'index' => Pages\ListFournisseurs::route('/'),
-            'create' => Pages\CreateFournisseur::route('/create'),
-            'view' => Pages\ViewFournisseur::route('/{record}'),
-            'edit' => Pages\EditFournisseur::route('/{record}/edit'),
+            'index' => Pages\ListClients::route('/'),
+            'create' => Pages\CreateClient::route('/create'),
+            'view' => Pages\ViewClient::route('/{record}'),
+            'edit' => Pages\EditClient::route('/{record}/edit'),
         ];
     }
 }
