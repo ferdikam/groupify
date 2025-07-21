@@ -19,7 +19,8 @@ return new class extends Migration
             $table->unsignedInteger('montant')->comment('Montant du paiement en centimes');
             $table->enum('mode_paiement', ['especes', 'carte', 'virement', 'cheque', 'mobile_money']);
             $table->string('reference_paiement')->nullable()->comment('Référence bancaire ou autre');
-            $table->enum('statut', ['en_attente', 'confirme', 'rejete', 'rembourse'])->default('en_attente');
+            $table->enum('statut', ['en_attente', 'avance', 'soldé',
+                'remboursé'])->default('en_attente');
             $table->date('date_paiement');
             $table->text('commentaire')->nullable();
             $table->timestamps();
