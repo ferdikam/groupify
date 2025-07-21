@@ -13,7 +13,8 @@
 
             <flux:navlist variant="outline">
                 <flux:navlist.group :heading="__('Platform')" class="grid">
-                    <flux:navlist.item icon="home" :href="route('dashboard')" :current="request()->routeIs('dashboard')" wire:navigate>{{ __('Dashboard') }}</flux:navlist.item>
+                    <flux:navlist.item icon="home" :href="route('dashboard')" :current="request()->routeIs('dashboard')" wire:navigate>{{ __('Tableau de bord') }}</flux:navlist.item>
+                    <flux:navlist.item icon="baggage-claim" :href="route('groupages.index')" :current="request()->routeIs('groupages.*')" wire:navigate>{{ __('Groupages') }}</flux:navlist.item>
                 </flux:navlist.group>
             </flux:navlist>
 
