@@ -7,15 +7,15 @@ RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
-NC='\033[0m' # No Color
+NC='\033[0m'
 
 # Configuration
 IMAGE_TAG=${1:-latest}
 DOCKER_IMAGE="ghcr.io/ferdikam/groupify:$IMAGE_TAG"
-HEALTH_CHECK_TIMEOUT=300
+HEALTH_CHECK_TIMEOUT=180
 HEALTH_CHECK_INTERVAL=10
 
-echo -e "${BLUE}🚀 Starting Blue-Green deployment...${NC}"
+echo -e "${BLUE}🚀 Starting Production Blue-Green deployment...${NC}"
 echo -e "${BLUE}📦 Image: $DOCKER_IMAGE${NC}"
 
 # Function to check health
@@ -110,13 +110,13 @@ else
     echo -e "${YELLOW}⚠️ Nginx config not found, manual switch required${NC}"
 fi
 
-# Wait a bit for traffic to switch
+# Wait for traffic to switch
 sleep 5
 
 # Stop old environment
 if [ ! -z "$CURRENT" ]; then
     echo -e "${YELLOW}🛑 Stopping $CURRENT environment...${NC}"
-    sleep 10  # Grace period for existing connections
+    sleep 10  # Grace period
     docker-compose -f docker-compose.$CURRENT.yml down
 
     # Clean up old images (keep last 3)
@@ -128,9 +128,9 @@ if [ ! -z "$CURRENT" ]; then
     xargs -r docker rmi || true
 fi
 
-echo -e "${GREEN}✅ Deployment completed successfully!${NC}"
+echo -e "${GREEN}✅ Production deployment completed successfully!${NC}"
 echo -e "${GREEN}🌐 Application is now running on $TARGET environment${NC}"
-echo -e "${GREEN}📊 Health check: http://localhost/health${NC}"
+echo -e "${GREEN}📊 Health check: http://yourdomain.com/health${NC}"
 
 # Send deployment notification
 if [ ! -z "$SLACK_WEBHOOK" ]; then
