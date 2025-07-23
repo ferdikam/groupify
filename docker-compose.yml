@@ -1,0 +1,79 @@
+version: '3.8'
+
+services:
+    app:
+        build:
+            context: .
+            dockerfile: Dockerfile
+        container_name: laravel-dev
+        restart: unless-stopped
+        ports:
+            - "80:80"
+            - "443:443"
+        volumes:
+            - .:/app
+            - ./storage:/app/storage
+            - ./bootstrap/cache:/app/bootstrap/cache
+        environment:
+            - APP_ENV=local
+            - APP_DEBUG=true
+            - DB_CONNECTION=mysql
+            - DB_HOST=db
+            - DB_PORT=3306
+            - DB_DATABASE=laravel
+            - DB_USERNAME=laravel
+            - DB_PASSWORD=password
+            - CACHE_DRIVER=redis
+            - SESSION_DRIVER=redis
+            - REDIS_HOST=redis
+            - REDIS_PORT=6379
+        depends_on:
+            - db
+            - redis
+        networks:
+            - laravel
+
+    db:
+        image: mysql:8.0
+        container_name: laravel-mysql-dev
+        restart: unless-stopped
+        environment:
+            MYSQL_DATABASE: laravel
+            MYSQL_USER: laravel
+            MYSQL_PASSWORD: password
+            MYSQL_ROOT_PASSWORD: root
+        volumes:
+            - mysql_dev_data:/var/lib/mysql
+        ports:
+            - "3306:3306"
+        networks:
+            - laravel
+
+    redis:
+        image: redis:7-alpine
+        container_name: laravel-redis-dev
+        restart: unless-stopped
+        volumes:
+            - redis_dev_data:/data
+        ports:
+            - "6379:6379"
+        networks:
+            - laravel
+
+    mailhog:
+        image: mailhog/mailhog
+        container_name: laravel-mailhog
+        restart: unless-stopped
+        ports:
+            - "1025:1025"
+            - "8025:8025"
+        networks:
+            - laravel
+
+volumes:
+    mysql_dev_data:
+    redis_dev_data:
+
+networks:
+    laravel:
+        driver: bridge
