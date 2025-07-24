@@ -1,0 +1,32 @@
+name: 🔒 Security
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+  schedule:
+    - cron: '0 2 * * 1'  # Every Monday at 2 AM
+
+jobs:
+  security:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+
+      - name: Install dependencies
+        run: composer install --prefer-dist --no-interaction
+
+      - name: Security Audit
+        run: composer audit
+
+      - name: Check for known security vulnerabilities
+        run: |
+          composer require --dev sensiolabs/security-checker
+          vendor/bin/security-checker security:check composer.lock

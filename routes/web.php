@@ -7,7 +7,7 @@ use App\Livewire\Settings\Profile;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/', function () {
-    return view('welcome');
+    return redirect('/group-admin');
 })->name('home');
 
 Route::view('dashboard', 'dashboard')
