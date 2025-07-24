@@ -77,8 +77,8 @@ jobs:
       - name: 📊 Create database
         run: php artisan migrate --env=testing --force
 
-      - name: 🧪 Run PHPUnit tests
-        run: vendor/bin/phpunit --coverage-clover=coverage.xml
+      - name: 🧪 Run PestPHP tests
+        run: vendor/bin/pest --coverage-clover=coverage.xml
 
       - name: 📈 Upload coverage to Codecov
         uses: codecov/codecov-action@v3
