@@ -31,13 +31,68 @@ jobs:
         run: |
           ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} "/tmp/scripts/install-environment.sh"
 
-      - name: Setup project
+      - name: Verify secrets configuration
         run: |
-          ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} "/tmp/scripts/setup-project.sh '${{ secrets.PROJECT_PATH }}' '${{ github.repository }}'"
+          echo "🔍 Vérification des secrets (les valeurs ne s'affichent pas pour la sécurité):"
+          echo "PROJECT_PATH défini: ${{ secrets.PROJECT_PATH != '' }}"
+          echo "SERVER_USER défini: ${{ secrets.SERVER_USER != '' }}"
+          echo "SERVER_HOST défini: ${{ secrets.SERVER_HOST != '' }}"
+          echo "Repository: ${{ github.repository }}"
 
-      - name: Create Docker configurations
+      - name: Setup project (Alternative - Upload code directly)
         run: |
-          ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} "/tmp/scripts/create-docker-configs.sh '${{ secrets.PROJECT_PATH }}' '${{ secrets.DOMAIN_NAME }}'"
+          PROJECT_PATH="${{ secrets.PROJECT_PATH }}"
+          if [ -z "$PROJECT_PATH" ]; then
+            PROJECT_PATH="/home/deploy/groupify"
+          fi
+
+          # Créer une archive du code source
+          tar -czf project.tar.gz --exclude='.git' --exclude='node_modules' .
+
+          # Envoyer l'archive au serveur
+          scp project.tar.gz ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}:/tmp/
+
+          # Extraire et configurer sur le serveur
+          ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} "
+            # Nettoyer et créer le répertoire
+            rm -rf '$PROJECT_PATH'
+            mkdir -p '$PROJECT_PATH'
+
+            # Extraire l'archive
+            tar -xzf /tmp/project.tar.gz -C '$PROJECT_PATH'
+
+            # Initialiser Git
+            cd '$PROJECT_PATH'
+            git init
+            git add .
+            git commit -m 'Initial deployment commit'
+
+            # Configurer les permissions
+            chown -R \$USER:\$USER '$PROJECT_PATH' 2>/dev/null || sudo chown -R \$USER:\$USER '$PROJECT_PATH'
+
+            # Nettoyer
+            rm -f /tmp/project.tar.gz
+
+            echo '✅ Projet configuré via upload direct'
+          "
+
+      - name: Create Docker configurations (AVANT le build)
+        run: |
+          PROJECT_PATH="${{ secrets.PROJECT_PATH }}"
+          if [ -z "$PROJECT_PATH" ]; then
+            PROJECT_PATH="/home/deploy/groupify"
+          fi
+
+          ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} "/tmp/scripts/create-docker-configs.sh '$PROJECT_PATH' '${{ secrets.DOMAIN_NAME }}'"
+
+      - name: Create Docker configurations (AVANT le build)
+        run: |
+          PROJECT_PATH="${{ secrets.PROJECT_PATH }}"
+          if [ -z "$PROJECT_PATH" ]; then
+            PROJECT_PATH="/home/deploy/groupify"
+          fi
+
+          ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} "/tmp/scripts/create-docker-configs.sh '$PROJECT_PATH' '${{ secrets.DOMAIN_NAME }}'"
 
       - name: Deploy application
         env:
@@ -48,11 +103,21 @@ jobs:
           DOMAIN_NAME: ${{ secrets.DOMAIN_NAME }}
           SSL_EMAIL: ${{ secrets.SSL_EMAIL }}
         run: |
-          ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} "/tmp/scripts/deploy-app.sh '${{ secrets.PROJECT_PATH }}' '$APP_KEY' '$DB_DATABASE' '$DB_USERNAME' '$DB_PASSWORD' '$DOMAIN_NAME' '$SSL_EMAIL'"
+          PROJECT_PATH="${{ secrets.PROJECT_PATH }}"
+          if [ -z "$PROJECT_PATH" ]; then
+            PROJECT_PATH="/home/deploy/groupify"
+          fi
+
+          ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} "/tmp/scripts/deploy-app.sh '$PROJECT_PATH' '$APP_KEY' '$DB_DATABASE' '$DB_USERNAME' '$DB_PASSWORD' '$DOMAIN_NAME' '$SSL_EMAIL'"
 
       - name: Setup SSL
         run: |
-          ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} "/tmp/scripts/setup-ssl.sh '${{ secrets.PROJECT_PATH }}' '${{ secrets.DOMAIN_NAME }}'"
+          PROJECT_PATH="${{ secrets.PROJECT_PATH }}"
+          if [ -z "$PROJECT_PATH" ]; then
+            PROJECT_PATH="/home/deploy/groupify"
+          fi
+
+          ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} "/tmp/scripts/setup-ssl.sh '$PROJECT_PATH' '${{ secrets.DOMAIN_NAME }}'"
 
       - name: Verify deployment
         run: |
