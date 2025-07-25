@@ -28,7 +28,7 @@ jobs:
           ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} "
             set -e
 
-            echo '🚀 Vérification et installation de l'\''environnement de production...'
+            echo '🚀 Vérification et installation de l environnement de production...'
 
             # Mise à jour du système
             sudo apt update
@@ -99,7 +99,7 @@ jobs:
           ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} "
             set -e
 
-            # Créer le répertoire du projet s'il n'existe pas
+            # Créer le répertoire du projet s il n existe pas
             if [ ! -d '${{ secrets.PROJECT_PATH }}' ]; then
               echo '📂 Création du répertoire du projet...'
               mkdir -p '${{ secrets.PROJECT_PATH }}'
@@ -115,7 +115,7 @@ jobs:
               git reset --hard origin/main
             fi
 
-            # S'assurer que nous avons les bonnes permissions
+            # S assurer que nous avons les bonnes permissions
             sudo chown -R ${{ secrets.SERVER_USER }}:${{ secrets.SERVER_USER }} '${{ secrets.PROJECT_PATH }}'
           "
 
@@ -125,11 +125,11 @@ jobs:
             set -e
             cd '${{ secrets.PROJECT_PATH }}'
 
-            # Créer le répertoire docker s'il n'existe pas
+            # Créer le répertoire docker s il n existe pas
             mkdir -p docker
 
             # Créer nginx.conf
-            cat > docker/nginx.conf << 'EOF'
+            cat > docker/nginx.conf << 'NGINXEOF'
   worker_processes 1;
   events {
   worker_connections 512;
@@ -150,10 +150,10 @@ jobs:
   }
 }
 }
-  EOF
+  NGINXEOF
 
   # Créer nginx-ssl.conf
-  cat > docker/nginx-ssl.conf << 'EOF'
+  cat > docker/nginx-ssl.conf << 'NGINXSSLEOF'
   worker_processes 1;
   events {
   worker_connections 512;
@@ -205,10 +205,10 @@ jobs:
   }
 }
 }
-  EOF
+  NGINXSSLEOF
 
   # Créer supervisord.conf
-  cat > docker/supervisord.conf << 'EOF'
+  cat > docker/supervisord.conf << 'SUPERVISOREOF'
   [supervisord]
   nodaemon=true
   user=root
@@ -232,10 +232,10 @@ jobs:
   stderr_logfile_maxbytes=0
   autorestart=false
   startretries=0
-  EOF
+  SUPERVISOREOF
 
   # Créer php-fpm.conf
-  cat > docker/php-fpm.conf << 'EOF'
+  cat > docker/php-fpm.conf << 'PHPFPMEOF'
   [www]
   user = www
   group = www
@@ -248,10 +248,10 @@ jobs:
   pm.min_spare_servers = 1
   pm.max_spare_servers = 3
   pm.max_requests = 500
-  EOF
+  PHPFPMEOF
 
   # Créer mysql.cnf
-  cat > docker/mysql.cnf << 'EOF'
+  cat > docker/mysql.cnf << 'MYSQLEOF'
   [mysqld]
   innodb_buffer_pool_size = 128M
   innodb_log_file_size = 32M
@@ -260,7 +260,7 @@ jobs:
   query_cache_size = 16M
   tmp_table_size = 32M
   max_heap_table_size = 32M
-  EOF
+  MYSQLEOF
 
   echo '✅ Fichiers de configuration Docker créés'
   "
@@ -272,7 +272,7 @@ jobs:
       cd '${{ secrets.PROJECT_PATH }}'
 
       # Création du fichier .env
-      cat > .env << 'EOF'
+      cat > .env << 'ENVEOF'
   APP_NAME=\"Laravel Filament\"
   APP_ENV=production
   APP_KEY=${{ secrets.APP_KEY }}
@@ -295,7 +295,7 @@ jobs:
   SESSION_LIFETIME=120
 
   MAIL_MAILER=smtp
-  EOF
+  ENVEOF
 
   # Créer les répertoires nécessaires
   mkdir -p storage/app/public
@@ -319,14 +319,14 @@ jobs:
   echo '⏳ Attente du démarrage des services...'
   sleep 45
 
-  # Vérifier que les conteneurs sont en cours d'exécution
+  # Vérifier que les conteneurs sont en cours d exécution
   docker-compose ps
 
   # Installer les dépendances et configurer Laravel
   echo '📦 Installation des dépendances Laravel...'
   docker-compose exec -T app composer install --no-dev --optimize-autoloader --no-interaction || true
 
-  # Générer la clé d'application si nécessaire
+  # Générer la clé d application si nécessaire
   docker-compose exec -T app php artisan key:generate --force || true
 
   # Exécuter les migrations
@@ -379,7 +379,7 @@ jobs:
       # Nettoyage Docker
       docker system prune -f || true
 
-      # Vérifier l'état des conteneurs
+      # Vérifier l état des conteneurs
       echo '📊 État des conteneurs :'
       docker-compose ps
 
@@ -388,7 +388,7 @@ jobs:
 
 - name: Verify website accessibility
   run: |
-    echo '🌐 Vérification de l'\''accessibilité du site...'
+    echo '🌐 Vérification de l accessibilité du site...'
     sleep 15
 
     # Test HTTP (doit rediriger vers HTTPS)
