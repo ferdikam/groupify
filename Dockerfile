@@ -25,7 +25,7 @@ RUN docker-php-ext-install \
     bcmath \
     gd \
     opcache \
-    intl \  # Ajout de l'extension intl
+    intl \
     zip     # Ajout de l'extension zip
 
 # Installation de Composer
