@@ -12,7 +12,9 @@ RUN apk add --no-cache \
     unzip \
     mysql-client \
     nginx \
-    supervisor
+    supervisor \
+    icu-dev \  # Pour intl
+    libzip-dev  # Pour zip
 
 # Installation des extensions PHP nécessaires
 RUN docker-php-ext-install \
@@ -22,7 +24,9 @@ RUN docker-php-ext-install \
     pcntl \
     bcmath \
     gd \
-    opcache
+    opcache \
+    intl \  # Ajout de l'extension intl
+    zip     # Ajout de l'extension zip
 
 # Installation de Composer
 COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
@@ -41,6 +45,9 @@ WORKDIR /var/www/html
 # Configuration des permissions
 RUN addgroup -g 1000 -S www && \
     adduser -u 1000 -S www -G www
+
+# Configurer Git pour éviter les problèmes de permissions
+RUN git config --global --add safe.directory /var/www/html
 
 # Copie des fichiers de l'application
 COPY --chown=www:www . /var/www/html
