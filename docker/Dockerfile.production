@@ -1,5 +1,11 @@
 FROM dunglas/frankenphp:1-php8.3 AS base
 
+# Set environment variables
+ENV DEBIAN_FRONTEND=noninteractive
+ENV COMPOSER_ALLOW_SUPERUSER=1
+ENV COMPOSER_NO_INTERACTION=1
+ENV COMPOSER_MEMORY_LIMIT=-1
+
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
     git \
@@ -11,14 +17,42 @@ RUN apt-get update && apt-get install -y \
     unzip \
     libzip-dev \
     libpq-dev \
+    libicu-dev \
+    libfreetype6-dev \
+    libjpeg62-turbo-dev \
     supervisor \
-    && docker-php-ext-configure pgsql -with-pgsql=/usr/local/pgsql \
-    && docker-php-ext-install pdo pdo_mysql pdo_pgsql mbstring exif pcntl bcmath gd zip \
-    && apt-get clean \
+    nodejs \
+    npm \
     && rm -rf /var/lib/apt/lists/*
+
+# Configure and install PHP extensions
+RUN docker-php-ext-configure gd --with-freetype --with-jpeg \
+    && docker-php-ext-configure pgsql -with-pgsql=/usr/local/pgsql \
+    && docker-php-ext-install -j$(nproc) \
+        pdo \
+        pdo_mysql \
+        pdo_pgsql \
+        mbstring \
+        exif \
+        pcntl \
+        bcmath \
+        gd \
+        zip \
+        intl \
+        opcache
+
+# Configure OPcache for production
+RUN echo "opcache.enable=1" >> /usr/local/etc/php/conf.d/opcache.ini \
+    && echo "opcache.validate_timestamps=0" >> /usr/local/etc/php/conf.d/opcache.ini \
+    && echo "opcache.max_accelerated_files=10000" >> /usr/local/etc/php/conf.d/opcache.ini \
+    && echo "opcache.memory_consumption=192" >> /usr/local/etc/php/conf.d/opcache.ini \
+    && echo "opcache.max_wasted_percentage=10" >> /usr/local/etc/php/conf.d/opcache.ini
 
 # Install Composer
 COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
+
+# Verify Composer installation
+RUN composer --version
 
 # Set working directory
 WORKDIR /app
@@ -26,23 +60,44 @@ WORKDIR /app
 # Build stage
 FROM base AS build
 
-# Copy composer files
+# Copy composer files first for better caching
 COPY composer.json composer.lock ./
 
-# Install PHP dependencies
-RUN composer install --no-dev --optimize-autoloader --no-scripts --no-interaction
+# Debug: Show composer files content
+RUN echo "=== Composer.json ===" \
+    && cat composer.json \
+    && echo "=== Composer.lock exists ===" \
+    && ls -la composer.lock
 
-# Copy package.json and install Node dependencies
+# Validate composer files
+RUN composer validate --strict
+
+# Install PHP dependencies with verbose output
+RUN composer install \
+    --verbose \
+    --no-dev \
+    --no-scripts \
+    --no-autoloader \
+    --no-interaction \
+    --prefer-dist
+
+# Copy package.json for Node dependencies
 COPY package*.json ./
-RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
-    && apt-get install -y nodejs \
-    && npm ci --only=production
+
+# Install Node dependencies
+RUN npm ci --only=production
 
 # Copy application code
 COPY . .
 
+# Generate autoloader
+RUN composer dump-autoload --optimize --no-dev
+
 # Build assets
 RUN npm run build
+
+# Remove node_modules and package files to reduce image size
+RUN rm -rf node_modules package*.json
 
 # Production stage
 FROM base AS production
@@ -61,7 +116,8 @@ RUN chown -R www-data:www-data /app \
 
 # Create required directories
 RUN mkdir -p /var/log/supervisor \
-    && mkdir -p /var/log/caddy
+    && mkdir -p /var/log/caddy \
+    && chown -R www-data:www-data /var/log
 
 # Expose ports
 EXPOSE 80 443
