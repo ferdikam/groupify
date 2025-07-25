@@ -2,7 +2,7 @@
     "private": true,
     "type": "module",
     "scripts": {
-        "build": "vite build && vite build --config vite.config.filament.js",
+        "build": "vite build",
         "dev": "concurrently \"vite\" \"vite --config vite.config.filament.js\""
     },
     "dependencies": {
