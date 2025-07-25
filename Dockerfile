@@ -64,11 +64,13 @@ RUN chown -R www:www /var/www/html \
     && chmod -R 775 /var/www/html/storage \
     && chmod -R 775 /var/www/html/bootstrap/cache
 
-# Créer les répertoires pour Supervisor
-RUN mkdir -p /var/log/supervisor /var/run/supervisor
+# Ajoutez ces lignes avant le CMD final
+RUN mkdir -p /var/log/supervisor /var/run/supervisor \
+    && touch /var/log/supervisor/supervisord.log \
+    && chown -R www:www /var/log/supervisor /var/run/supervisor
 
-# Copier la configuration Supervisor
-COPY supervisord.conf /etc/supervisor/conf.d/supervisord.conf
+# Copiez la configuration Supervisor
+COPY docker/supervisord.conf /etc/supervisor/conf.d/supervisord.conf
 
 EXPOSE 80
 
