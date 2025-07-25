@@ -1,100 +1,64 @@
-services:
-  app:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: laravel_app
-    restart: unless-stopped
-    depends_on:
-      mysql:
-        condition: service_healthy
-    environment:
-      - APP_ENV=production
-      - APP_DEBUG=false
-      - DB_HOST=mysql
-      - DB_USERNAME=${DB_USERNAME}
-      - DB_PASSWORD=${DB_PASSWORD}
-    volumes:
-      - ./storage:/var/www/html/storage
-      - ./bootstrap/cache:/var/www/html/bootstrap/cache
-      - ./docker/supervisord.conf:/etc/supervisor/conf.d/supervisord.conf
-      - ./docker/php-fpm.conf:/usr/local/etc/php-fpm.d/www.conf
-      - certbot_certs:/etc/letsencrypt
-      - certbot_www:/var/www/certbot
-    networks:
-      - laravel_network
-    mem_limit: 512m
-    cpus: 0.5
-    healthcheck:
-      test: ["CMD", "php", "-v"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 60s
+# Dockerfile - Version simplifiée et robuste
+FROM php:8.4-fpm-alpine
 
-  mysql:
-    image: mysql:8.0
-    container_name: laravel_mysql
-    restart: unless-stopped
-    environment:
-      MYSQL_DATABASE: ${DB_DATABASE}
-      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD}
-      MYSQL_USER: ${DB_USERNAME}
-      MYSQL_PASSWORD: ${DB_PASSWORD}
-    volumes:
-      - mysql_data:/var/lib/mysql
-      - ./docker/mysql.cnf:/etc/mysql/conf.d/mysql.cnf
-    networks:
-      - laravel_network
-    mem_limit: 256m
-    cpus: 0.3
-    command: --innodb-buffer-pool-size=128M --max-connections=50
-    healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
-      interval: 5s
-      timeout: 5s
-      retries: 20
-      start_period: 30s
+# Installation de tout en une fois pour éviter les problèmes
+RUN apk add --no-cache \
+    git curl libpng-dev oniguruma-dev libxml2-dev zip unzip \
+    mysql-client nginx supervisor icu-dev libzip-dev && \
+    git config --global --add safe.directory /var/www/html && \
+    docker-php-ext-configure intl && \
+    docker-php-ext-configure zip && \
+    docker-php-ext-install pdo_mysql mbstring exif pcntl bcmath gd opcache intl zip && \
+    addgroup -g 1000 -S www && \
+    adduser -u 1000 -S www -G www && \
+    mkdir -p /var/log/supervisor /var/run/supervisor /etc/supervisor/conf.d
 
-  nginx:
-    image: nginx:alpine
-    container_name: laravel_nginx
-    restart: unless-stopped
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./:/var/www/html
-      - ./docker/nginx-ssl.conf:/etc/nginx/nginx.conf
-      - certbot_certs:/etc/letsencrypt
-      - certbot_www:/var/www/certbot
-    depends_on:
-      app:
-        condition: service_healthy
-    networks:
-      - laravel_network
-    mem_limit: 64m
-    healthcheck:
-      test: ["CMD", "nginx", "-t"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
+# Copier Composer
+COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
 
-  certbot:
-    image: certbot/certbot
-    container_name: laravel_certbot
-    volumes:
-      - certbot_certs:/etc/letsencrypt
-      - certbot_www:/var/www/certbot
-    command: certonly --webroot --webroot-path=/var/www/certbot --email ${SSL_EMAIL} --agree-tos --no-eff-email -d ${DOMAIN_NAME}
-    depends_on:
-      - nginx
+# Configuration PHP simple
+RUN echo "memory_limit=256M" > /usr/local/etc/php/conf.d/custom.ini && \
+    echo "max_execution_time=300" >> /usr/local/etc/php/conf.d/custom.ini && \
+    echo "opcache.enable=1" >> /usr/local/etc/php/conf.d/custom.ini
 
-volumes:
-  mysql_data:
-  certbot_certs:
-  certbot_www:
+WORKDIR /var/www/html
 
-networks:
-  laravel_network:
-    driver: bridge
+# Copier les fichiers
+COPY --chown=www:www . /var/www/html
+
+# Installation Composer simplifiée
+RUN composer install --no-dev --optimize-autoloader --no-interaction --ignore-platform-reqs || \
+    (echo "⚠️ Première tentative échouée, essai sans lock file..." && \
+     rm -f composer.lock && \
+     composer install --no-dev --optimize-autoloader --no-interaction --ignore-platform-reqs)
+
+# Permissions finales
+RUN mkdir -p storage bootstrap/cache && \
+    chmod -R 775 storage bootstrap/cache && \
+    chown -R www:www /var/www/html
+
+# Script wait-for-mysql
+COPY scripts/wait-for-mysql.sh /usr/local/bin/
+RUN chmod +x /usr/local/bin/wait-for-mysql.sh
+
+# Script d'entrée simple
+RUN cat > /usr/local/bin/docker-entrypoint.sh << 'EOF'
+#!/bin/bash
+set -e
+echo "🚀 Démarrage Laravel..."
+
+# Attendre MySQL si configuré
+if [ -n "$DB_HOST" ]; then
+    echo "⏳ Attente MySQL..."
+    /usr/local/bin/wait-for-mysql.sh "$DB_HOST" || echo "⚠️ Timeout MySQL"
+fi
+
+echo "✅ Démarrage supervisord..."
+exec /usr/bin/supervisord -c /etc/supervisor/conf.d/supervisord.conf
+EOF
+
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+
+EXPOSE 80
+
+CMD ["/usr/local/bin/docker-entrypoint.sh"]
