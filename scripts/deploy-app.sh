@@ -1,4 +1,3 @@
-# scripts/deploy-app.sh
 #!/bin/bash
 set -e
 
@@ -15,7 +14,7 @@ echo "🚀 Déploiement de l'application..."
 cd "$PROJECT_PATH"
 
 # Création du fichier .env
-cat > .env << EOF
+cat > .env << ENVEOF
 APP_NAME="Laravel Filament"
 APP_ENV=production
 APP_KEY=$APP_KEY
@@ -34,7 +33,7 @@ SSL_EMAIL=$SSL_EMAIL
 
 CACHE_DRIVER=file
 SESSION_DRIVER=file
-EOF
+ENVEOF
 
 # Création des répertoires
 mkdir -p storage/{app/public,framework/{cache,sessions,views},logs}
