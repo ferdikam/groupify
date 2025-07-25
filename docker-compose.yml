@@ -5,75 +5,81 @@ services:
         build:
             context: .
             dockerfile: Dockerfile
-        container_name: laravel-dev
+        container_name: laravel_app
+        restart: unless-stopped
+        depends_on:
+            - mysql
+        environment:
+            - APP_ENV=production
+            - APP_DEBUG=false
+        volumes:
+            - ./storage:/var/www/html/storage
+            - ./bootstrap/cache:/var/www/html/bootstrap/cache
+            - certbot_certs:/etc/letsencrypt
+            - certbot_www:/var/www/certbot
+        networks:
+            - laravel_network
+        deploy:
+            resources:
+                limits:
+                    memory: 512m
+                    cpus: 0.5
+    mysql:
+        image: mysql:8.0
+        container_name: laravel_mysql
+        restart: unless-stopped
+        environment:
+            MYSQL_DATABASE: ${DB_DATABASE}
+            MYSQL_ROOT_PASSWORD: ${DB_PASSWORD}
+            MYSQL_USER: ${DB_USERNAME}
+            MYSQL_PASSWORD: ${DB_PASSWORD}
+        volumes:
+            - mysql_data:/var/lib/mysql
+            - ./docker/mysql.cnf:/etc/mysql/conf.d/mysql.cnf
+        networks:
+            - laravel_network
+        deploy:
+            resources:
+                limits:
+                    memory: 256m
+                    cpus: 0.3
+        command: --innodb-buffer-pool-size=128M --max-connections=50
+
+    nginx:
+        image: nginx:alpine
+        container_name: laravel_nginx
         restart: unless-stopped
         ports:
             - "80:80"
             - "443:443"
         volumes:
-            - .:/app
-            - ./storage:/app/storage
-            - ./bootstrap/cache:/app/bootstrap/cache
-        environment:
-            - APP_ENV=local
-            - APP_DEBUG=true
-            - DB_CONNECTION=mysql
-            - DB_HOST=db
-            - DB_PORT=3306
-            - DB_DATABASE=laravel
-            - DB_USERNAME=laravel
-            - DB_PASSWORD=password
-            - CACHE_DRIVER=redis
-            - SESSION_DRIVER=redis
-            - REDIS_HOST=redis
-            - REDIS_PORT=6379
+            - ./docker/nginx-ssl.conf:/etc/nginx/nginx.conf
+            - certbot_certs:/etc/letsencrypt
+            - certbot_www:/var/www/certbot
         depends_on:
-            - db
-            - redis
+            - app
         networks:
-            - laravel
+            - laravel_network
+        deploy:
+            resources:
+                limits:
+                    memory: 64m
 
-    db:
-        image: mysql:8.0
-        container_name: laravel-mysql-dev
-        restart: unless-stopped
-        environment:
-            MYSQL_DATABASE: laravel
-            MYSQL_USER: laravel
-            MYSQL_PASSWORD: password
-            MYSQL_ROOT_PASSWORD: root
+    certbot:
+        image: certbot/certbot
+        container_name: laravel_certbot
         volumes:
-            - mysql_dev_data:/var/lib/mysql
-        ports:
-            - "3306:3306"
-        networks:
-            - laravel
-
-    redis:
-        image: redis:7-alpine
-        container_name: laravel-redis-dev
-        restart: unless-stopped
-        volumes:
-            - redis_dev_data:/data
-        ports:
-            - "6379:6379"
-        networks:
-            - laravel
-
-    mailhog:
-        image: mailhog/mailhog
-        container_name: laravel-mailhog
-        restart: unless-stopped
-        ports:
-            - "1025:1025"
-            - "8025:8025"
-        networks:
-            - laravel
+            - certbot_certs:/etc/letsencrypt
+            - certbot_www:/var/www/certbot
+        command: certonly --webroot --webroot-path=/var/www/certbot --email ${SSL_EMAIL} --agree-tos --no-eff-email -d ${DOMAIN_NAME}
+        depends_on:
+            - nginx
 
 volumes:
-    mysql_dev_data:
-    redis_dev_data:
+    mysql_data:
+    certbot_certs:
+    certbot_www:
 
 networks:
-    laravel:
+    laravel_network:
         driver: bridge

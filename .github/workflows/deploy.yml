@@ -1,271 +1,76 @@
-name: 🚀 Deploy Laravel with FrankenPHP
+# .github/workflows/deploy.yml
+name: Deploy Laravel Filament
 
 on:
   push:
-    branches: [ main, develop ]
-  pull_request:
-    branches: [ main ]
-
-env:
-  REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}
+    branches: [main]
+  workflow_dispatch:
 
 jobs:
-  # Tests pour toutes les branches
-  tests:
-    name: 🧪 Tests & Quality
-    runs-on: ubuntu-latest
-
-    services:
-      mysql:
-        image: mysql:8.0
-        env:
-          MYSQL_ROOT_PASSWORD: root
-          MYSQL_DATABASE: laravel_test
-          MYSQL_USER: laravel
-          MYSQL_PASSWORD: password
-        ports:
-          - 3306:3306
-        options: >-
-          --health-cmd="mysqladmin ping --silent"
-          --health-interval=10s
-          --health-timeout=5s
-          --health-retries=3
-
-      redis:
-        image: redis:7-alpine
-        ports:
-          - 6379:6379
-        options: >-
-          --health-cmd="redis-cli ping"
-          --health-interval=10s
-          --health-timeout=5s
-          --health-retries=3
-
-    steps:
-      - name: 📥 Checkout code
-        uses: actions/checkout@v4
-
-      - name: 🐘 Setup PHP 8.3
-        uses: shivammathur/setup-php@v2
-        with:
-          php-version: '8.3'
-          extensions: mbstring, dom, fileinfo, mysql, redis, zip, gd, bcmath
-          coverage: xdebug
-          tools: composer:v2
-
-      - name: 📦 Get Composer Cache Directory
-        id: composer-cache
-        run: echo "dir=$(composer config cache-files-dir)" >> $GITHUB_OUTPUT
-
-      - name: 🔄 Cache Composer dependencies
-        uses: actions/cache@v3
-        with:
-          path: ${{ steps.composer-cache.outputs.dir }}
-          key: ${{ runner.os }}-composer-${{ hashFiles('**/composer.lock') }}
-          restore-keys: ${{ runner.os }}-composer-
-
-      - name: 🏗️ Install PHP dependencies
-        run: composer install --no-progress --prefer-dist --optimize-autoloader
-
-      - name: 📋 Copy environment file
-        run: cp .env.example .env.testing
-
-      - name: 🔑 Generate application key
-        run: php artisan key:generate --env=testing
-
-      - name: 📊 Create database
-        run: php artisan migrate --env=testing --force
-
-#      - name: 🧪 Run PestPHP tests
-#        run: vendor/bin/pest --coverage-clover=coverage.xml
-#
-#      - name: 📈 Upload coverage to Codecov
-#        uses: codecov/codecov-action@v3
-#        with:
-#          file: ./coverage.xml
-#          flags: unittests
-
-  # Scan de sécurité pour toutes les branches
-  security:
-    name: 🔒 Security Scan
+  deploy:
     runs-on: ubuntu-latest
 
     steps:
-      - name: 📥 Checkout code
+      - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: 🐘 Setup PHP
-        uses: shivammathur/setup-php@v2
+      - name: Setup SSH
+        uses: webfactory/ssh-agent@v0.7.0
         with:
-          php-version: '8.3'
-          tools: composer:v2
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
 
-      - name: 🏗️ Install dependencies
-        run: composer install --no-dev --optimize-autoloader
+      - name: Add server to known hosts
+        run: |
+          ssh-keyscan -H ${{ secrets.SERVER_HOST }} >> ~/.ssh/known_hosts
 
-      - name: 🔍 Run security audit
-        run: composer audit
+      - name: Deploy to server
+        run: |
+          ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} "
+            cd ${{ secrets.PROJECT_PATH }} &&
+            git pull origin main &&
 
-  # Build et push Docker SEULEMENT pour main
-  build:
-    name: 🏗️ Build & Push Docker Image
-    runs-on: ubuntu-latest
-    needs: [tests, security]
-    if: github.ref == 'refs/heads/main'
+            # Création du fichier .env s'il n'existe pas
+            if [ ! -f .env ]; then
+              cp .env.example .env
+              echo 'DB_DATABASE=${{ secrets.DB_DATABASE }}' >> .env
+              echo 'DB_USERNAME=${{ secrets.DB_USERNAME }}' >> .env
+              echo 'DB_PASSWORD=${{ secrets.DB_PASSWORD }}' >> .env
+              echo 'DOMAIN_NAME=${{ secrets.DOMAIN_NAME }}' >> .env
+              echo 'SSL_EMAIL=${{ secrets.SSL_EMAIL }}' >> .env
+              echo 'APP_KEY=${{ secrets.APP_KEY }}' >> .env
+              echo 'APP_URL=https://${{ secrets.DOMAIN_NAME }}' >> .env
+              echo 'APP_ENV=production' >> .env
+              echo 'APP_DEBUG=false' >> .env
+            fi &&
 
-    permissions:
-      contents: read
-      packages: write
+            # Arrêt des conteneurs existants
+            docker-compose down &&
 
-    steps:
-      - name: 📥 Checkout code
-        uses: actions/checkout@v4
+            # Construction et démarrage
+            docker-compose build --no-cache &&
+            docker-compose up -d &&
 
-      - name: 🐳 Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+            # Attendre que MySQL soit prêt
+            sleep 30 &&
 
-      - name: 🔐 Login to GitHub Container Registry
-        uses: docker/login-action@v3
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+            # Migrations et optimisations Laravel
+            docker-compose exec -T app php artisan migrate --force &&
+            docker-compose exec -T app php artisan config:cache &&
+            docker-compose exec -T app php artisan route:cache &&
+            docker-compose exec -T app php artisan view:cache &&
+            docker-compose exec -T app php artisan storage:link &&
 
-      - name: 🏷️ Extract metadata
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-          tags: |
-            type=ref,event=branch
-            type=sha,prefix=main-
-            type=raw,value=latest
+            # Configuration SSL (première fois)
+            if [ ! -f /var/lib/docker/volumes/\$(docker volume ls -q | grep certbot_certs)/_data/live/${{ secrets.DOMAIN_NAME }}/fullchain.pem ]; then
+              docker-compose run --rm certbot
+              docker-compose restart nginx
+            fi &&
 
-      - name: 🏗️ Build and push Docker image
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          file: ./docker/Dockerfile.production
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+            # Nettoyage
+            docker system prune -af
+          "
 
-  # Déploiement production SEULEMENT pour main
-  deploy-production:
-    name: 🚀 Deploy to Production
-    runs-on: ubuntu-latest
-    needs: build
-    if: github.ref == 'refs/heads/main'
-    environment:
-      name: production
-      url: https://groupifyglobal.com
-
-    steps:
-      - name: 📥 Checkout deployment scripts
-        uses: actions/checkout@v4
-        with:
-          sparse-checkout: |
-            scripts/
-            docker/
-
-      - name: 🚀 Deploy to production with Blue-Green
-        uses: appleboy/ssh-action@v1.0.0
-        with:
-          host: ${{ secrets.PRODUCTION_HOST }}
-          username: ${{ secrets.PRODUCTION_USER }}
-          key: ${{ secrets.PRODUCTION_SSH_KEY }}
-          port: ${{ secrets.PRODUCTION_PORT || 22 }}
-          script_stop: true
-          script: |
-            cd /var/www/laravel-app
-
-            # Download latest deployment script
-            curl -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-                 -H "Accept: application/vnd.github.v3.raw" \
-                 -o deploy-blue-green.sh \
-                 "https://api.github.com/repos/${{ github.repository }}/contents/scripts/deploy-blue-green.sh"
-
-            chmod +x deploy-blue-green.sh
-
-            # Login to registry
-            docker login ghcr.io -u ${{ github.actor }} -p ${{ secrets.GITHUB_TOKEN }}
-
-            # Run blue-green deployment
-            ./deploy-blue-green.sh "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest"
-
-      - name: 📱 Notify deployment success
-        if: success()
-        uses: 8398a7/action-slack@v3
-        with:
-          status: custom
-          custom_payload: |
-            {
-              "text": "🚀 Production deployment successful!",
-              "attachments": [
-                {
-                  "color": "good",
-                  "fields": [
-                    {
-                      "title": "Branch",
-                      "value": "${{ github.ref_name }}",
-                      "short": true
-                    },
-                    {
-                      "title": "Commit",
-                      "value": "${{ github.sha }}",
-                      "short": true
-                    },
-                    {
-                      "title": "Author",
-                      "value": "${{ github.actor }}",
-                      "short": true
-                    },
-                    {
-                      "title": "URL",
-                      "value": "https://groupifyglobal.com",
-                      "short": true
-                    }
-                  ]
-                }
-              ]
-            }
-        env:
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK }}
-
-      - name: 🚨 Notify deployment failure
-        if: failure()
-        uses: 8398a7/action-slack@v3
-        with:
-          status: custom
-          custom_payload: |
-            {
-              "text": "❌ Production deployment failed!",
-              "attachments": [
-                {
-                  "color": "danger",
-                  "fields": [
-                    {
-                      "title": "Branch",
-                      "value": "${{ github.ref_name }}",
-                      "short": true
-                    },
-                    {
-                      "title": "Author",
-                      "value": "${{ github.actor }}",
-                      "short": true
-                    },
-                    {
-                      "title": "Logs",
-                      "value": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}",
-                      "short": true
-                    }
-                  ]
-                }
-              ]
-            }
-        env:
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK }}
+      - name: Verify deployment
+        run: |
+          sleep 10
+          curl -f https://${{ secrets.DOMAIN_NAME }} || exit 1
