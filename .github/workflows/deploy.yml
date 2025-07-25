@@ -39,17 +39,23 @@ jobs:
           echo "SERVER_HOST défini: ${{ secrets.SERVER_HOST != '' }}"
           echo "Repository: ${{ github.repository }}"
 
+      - name: Debug secrets configuration
+        run: |
+          echo "🔍 Debug des secrets:"
+          echo "PROJECT_PATH length: ${#PROJECT_PATH}"
+          echo "PROJECT_PATH défini: ${{ secrets.PROJECT_PATH != '' }}"
+          echo "SERVER_USER: ${{ secrets.SERVER_USER }}"
+          echo "SERVER_HOST: ${{ secrets.SERVER_HOST }}"
+        env:
+          PROJECT_PATH: ${{ secrets.PROJECT_PATH }}
+
       - name: Setup project (Alternative - Upload code directly)
         run: |
-          PROJECT_PATH="${{ secrets.PROJECT_PATH }}"
-          if [ -z "$PROJECT_PATH" ]; then
-            PROJECT_PATH="/home/deploy/groupify"
-            echo "✅ Utilisation du chemin par défaut: $PROJECT_PATH"
-          else
-            echo "✅ Utilisation du PROJECT_PATH configuré: $PROJECT_PATH"
-          fi
+          # Force la valeur par défaut pour éviter les problèmes
+          PROJECT_PATH="/home/deploy/groupify"
+          echo "✅ Utilisation du chemin fixe: $PROJECT_PATH"
 
-          # Créer une archive du code source (exclure plus de fichiers)
+          # Créer une archive du code source avec gestion d'erreurs
           echo "📦 Création de l'archive du projet..."
           tar -czf project.tar.gz \
             --exclude='.git' \
@@ -57,37 +63,55 @@ jobs:
             --exclude='.github' \
             --exclude='vendor' \
             --exclude='storage/logs' \
+            --exclude='storage/framework/cache' \
             --exclude='*.log' \
             --exclude='.env' \
             --warning=no-file-changed \
-            .
+            --ignore-failed-read \
+            . || {
+              echo "⚠️ Erreur tar, essai avec méthode alternative..."
+              find . -type f \
+                ! -path './.git/*' \
+                ! -path './node_modules/*' \
+                ! -path './.github/*' \
+                ! -path './vendor/*' \
+                ! -name '*.log' \
+                -print0 | tar -czf project.tar.gz --null -T -
+            }
 
-          echo "📤 Envoi de l'archive au serveur..."
+          echo "📤 Envoi de l'archive au serveur ($(du -h project.tar.gz | cut -f1))..."
           scp project.tar.gz ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}:/tmp/
 
           echo "🚀 Configuration du projet sur le serveur..."
           ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} "
             set -e
+
+            PROJECT_PATH='/home/deploy/groupify'
+            echo '📍 Chemin cible: \$PROJECT_PATH'
+
             echo '🧹 Nettoyage du répertoire cible...'
-            rm -rf '$PROJECT_PATH'
-            mkdir -p '$PROJECT_PATH'
+            rm -rf \"\$PROJECT_PATH\"
+            mkdir -p \"\$PROJECT_PATH\"
 
             echo '📂 Extraction de l archive...'
-            tar -xzf /tmp/project.tar.gz -C '$PROJECT_PATH'
+            cd \"\$PROJECT_PATH\"
+            tar -xzf /tmp/project.tar.gz
 
             echo '🔧 Configuration Git...'
-            cd '$PROJECT_PATH'
-            git init
-            git add .
+            git init || echo 'Git init ignoré'
+            git add . || echo 'Git add ignoré'
             git commit -m 'Initial deployment commit' || echo 'Git commit ignoré'
 
             echo '🔑 Configuration des permissions...'
-            chown -R \$USER:\$USER '$PROJECT_PATH' 2>/dev/null || sudo chown -R \$USER:\$USER '$PROJECT_PATH' || echo 'Permissions OK'
+            chown -R \$USER:\$USER \"\$PROJECT_PATH\" 2>/dev/null || sudo chown -R \$USER:\$USER \"\$PROJECT_PATH\" || echo 'Permissions déjà OK'
+
+            echo '📋 Vérification du contenu...'
+            ls -la \"\$PROJECT_PATH\" | head -10
 
             echo '🧹 Nettoyage temporaire...'
             rm -f /tmp/project.tar.gz
 
-            echo '✅ Projet configuré dans: $PROJECT_PATH'
+            echo '✅ Projet configuré avec succès dans: \$PROJECT_PATH'
           "
 
       - name: Create Docker configurations (AVANT le build)
@@ -101,10 +125,8 @@ jobs:
 
       - name: Create Docker configurations (AVANT le build)
         run: |
-          PROJECT_PATH="${{ secrets.PROJECT_PATH }}"
-          if [ -z "$PROJECT_PATH" ]; then
-            PROJECT_PATH="/home/deploy/groupify"
-          fi
+          PROJECT_PATH="/home/deploy/groupify"
+          echo "🐳 Configuration Docker pour: $PROJECT_PATH"
 
           ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} "/tmp/scripts/create-docker-configs.sh '$PROJECT_PATH' '${{ secrets.DOMAIN_NAME }}'"
 
@@ -117,19 +139,15 @@ jobs:
           DOMAIN_NAME: ${{ secrets.DOMAIN_NAME }}
           SSL_EMAIL: ${{ secrets.SSL_EMAIL }}
         run: |
-          PROJECT_PATH="${{ secrets.PROJECT_PATH }}"
-          if [ -z "$PROJECT_PATH" ]; then
-            PROJECT_PATH="/home/deploy/groupify"
-          fi
+          PROJECT_PATH="/home/deploy/groupify"
+          echo "🚀 Déploiement vers: $PROJECT_PATH"
 
           ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} "/tmp/scripts/deploy-app.sh '$PROJECT_PATH' '$APP_KEY' '$DB_DATABASE' '$DB_USERNAME' '$DB_PASSWORD' '$DOMAIN_NAME' '$SSL_EMAIL'"
 
       - name: Setup SSL
         run: |
-          PROJECT_PATH="${{ secrets.PROJECT_PATH }}"
-          if [ -z "$PROJECT_PATH" ]; then
-            PROJECT_PATH="/home/deploy/groupify"
-          fi
+          PROJECT_PATH="/home/deploy/groupify"
+          echo "🔒 Configuration SSL pour: $PROJECT_PATH"
 
           ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} "/tmp/scripts/setup-ssl.sh '$PROJECT_PATH' '${{ secrets.DOMAIN_NAME }}'"
 
