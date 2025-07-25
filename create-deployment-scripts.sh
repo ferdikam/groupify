@@ -16,17 +16,32 @@ set -e
 
 echo "🚀 Installation de l'environnement de production..."
 
+# Vérifier si nous sommes root ou si nous avons sudo
+if [ "$EUID" -ne 0 ] && ! sudo -n true 2>/dev/null; then
+    echo "❌ Ce script nécessite des privilèges root ou sudo sans mot de passe"
+    echo "📋 Exécutez l'une de ces commandes sur votre serveur :"
+    echo "   sudo echo 'deploy ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/deploy"
+    echo "   OU exécutez ce script en tant que root"
+    exit 1
+fi
+
+# Préfixe pour les commandes privilégiées
+SUDO=""
+if [ "$EUID" -ne 0 ]; then
+    SUDO="sudo"
+fi
+
 # Mise à jour du système
-sudo apt update
+$SUDO apt update
 
 # Installation de Docker
 if ! command -v docker &> /dev/null; then
     echo "🐳 Installation de Docker..."
     curl -fsSL https://get.docker.com -o get-docker.sh
-    sudo sh get-docker.sh
-    sudo systemctl enable docker
-    sudo systemctl start docker
-    sudo usermod -aG docker $USER
+    $SUDO sh get-docker.sh
+    $SUDO systemctl enable docker
+    $SUDO systemctl start docker
+    $SUDO usermod -aG docker $USER
     rm get-docker.sh
 else
     echo "✅ Docker déjà installé"
@@ -35,32 +50,32 @@ fi
 # Installation de Docker Compose
 if ! command -v docker-compose &> /dev/null; then
     echo "🔧 Installation de Docker Compose..."
-    sudo curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
-    sudo chmod +x /usr/local/bin/docker-compose
+    $SUDO curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
+    $SUDO chmod +x /usr/local/bin/docker-compose
 else
     echo "✅ Docker Compose déjà installé"
 fi
 
 # Installation des outils
-sudo apt install -y git curl
+$SUDO apt install -y git curl
 
 # Configuration du swap
 if ! swapon --show | grep -q swapfile; then
     echo "💾 Configuration du swap..."
-    sudo fallocate -l 1G /swapfile
-    sudo chmod 600 /swapfile
-    sudo mkswap /swapfile
-    sudo swapon /swapfile
-    echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
-    echo 'vm.swappiness=10' | sudo tee -a /etc/sysctl.conf
-    sudo sysctl -p
+    $SUDO fallocate -l 1G /swapfile
+    $SUDO chmod 600 /swapfile
+    $SUDO mkswap /swapfile
+    $SUDO swapon /swapfile
+    echo '/swapfile none swap sw 0 0' | $SUDO tee -a /etc/fstab
+    echo 'vm.swappiness=10' | $SUDO tee -a /etc/sysctl.conf
+    $SUDO sysctl -p
 fi
 
 # Configuration du pare-feu
-sudo ufw allow OpenSSH
-sudo ufw allow 80/tcp
-sudo ufw allow 443/tcp
-sudo ufw --force enable
+$SUDO ufw allow OpenSSH
+$SUDO ufw allow 80/tcp
+$SUDO ufw allow 443/tcp
+$SUDO ufw --force enable
 
 echo "✅ Environnement installé avec succès"
 EOF
@@ -75,19 +90,54 @@ GITHUB_REPO=$2
 
 echo "📂 Configuration du projet..."
 
-if [ ! -d "$PROJECT_PATH" ]; then
-    echo "📥 Clonage du repository..."
-    mkdir -p "$PROJECT_PATH"
-    git clone "https://github.com/$GITHUB_REPO.git" "$PROJECT_PATH"
-else
-    echo "📄 Mise à jour du projet..."
-    cd "$PROJECT_PATH"
-    git fetch origin
-    git reset --hard origin/main
+# Préfixe pour les commandes privilégiées
+SUDO=""
+if [ "$EUID" -ne 0 ] && command -v sudo &> /dev/null; then
+    SUDO="sudo"
 fi
 
-sudo chown -R $USER:$USER "$PROJECT_PATH"
-echo "✅ Projet configuré"
+# Nettoyer et recréer le répertoire si nécessaire
+if [ -d "$PROJECT_PATH" ]; then
+    echo "📄 Répertoire existant détecté, nettoyage..."
+    rm -rf "$PROJECT_PATH"
+fi
+
+echo "📥 Clonage du repository..."
+mkdir -p "$(dirname "$PROJECT_PATH")"
+git clone "https://github.com/$GITHUB_REPO.git" "$PROJECT_PATH"
+
+# Vérifier que le clonage a réussi
+if [ ! -d "$PROJECT_PATH/.git" ]; then
+    echo "❌ Erreur: Le clonage Git a échoué"
+    exit 1
+fi
+
+echo "📋 Repository cloné avec succès"
+cd "$PROJECT_PATH"
+
+# Vérifier la branche main/master
+if git show-ref --verify --quiet refs/heads/main; then
+    BRANCH="main"
+elif git show-ref --verify --quiet refs/heads/master; then
+    BRANCH="master"
+else
+    BRANCH=$(git rev-parse --abbrev-ref HEAD)
+fi
+
+echo "📌 Utilisation de la branche: $BRANCH"
+
+# S'assurer qu'on est sur la bonne branche
+git checkout "$BRANCH"
+git pull origin "$BRANCH"
+
+# Utiliser sudo seulement si nécessaire et disponible
+if [ -n "$SUDO" ]; then
+    $SUDO chown -R $USER:$USER "$PROJECT_PATH"
+else
+    chown -R $USER:$USER "$PROJECT_PATH" 2>/dev/null || echo "⚠️ Impossible de changer les permissions - continuons"
+fi
+
+echo "✅ Projet configuré avec succès"
 EOF
 
 # Script 3: create-docker-configs.sh
