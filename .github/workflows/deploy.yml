@@ -133,16 +133,15 @@ jobs:
       - name: Deploy application
         env:
           APP_KEY: ${{ secrets.APP_KEY }}
-          DB_DATABASE: ${{ secrets.DB_DATABASE }}
-          DB_USERNAME: ${{ secrets.DB_USERNAME }}
-          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
           DOMAIN_NAME: ${{ secrets.DOMAIN_NAME }}
           SSL_EMAIL: ${{ secrets.SSL_EMAIL }}
         run: |
           PROJECT_PATH="/home/deploy/groupify"
-          echo "🚀 Déploiement vers: $PROJECT_PATH"
+          echo "🚀 Déploiement avec SQLite vers: $PROJECT_PATH"
 
-          ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} "/tmp/scripts/deploy-app.sh '$PROJECT_PATH' '$APP_KEY' '$DB_DATABASE' '$DB_USERNAME' '$DB_PASSWORD' '$DOMAIN_NAME' '$SSL_EMAIL'"
+          # Note: DB_DATABASE, DB_USERNAME, DB_PASSWORD ne sont plus nécessaires avec SQLite
+          # mais on les passe quand même pour la compatibilité du script
+          ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} "/tmp/scripts/deploy-app.sh '$PROJECT_PATH' '$APP_KEY' 'sqlite' 'none' 'none' '$DOMAIN_NAME' '$SSL_EMAIL'"
 
       - name: Setup SSL
         run: |
