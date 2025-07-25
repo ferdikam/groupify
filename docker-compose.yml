@@ -21,6 +21,11 @@ services:
             - laravel_network
         mem_limit: 512m
         cpus: 0.5
+        healthcheck:
+            test: [ "CMD", "php", "artisan", "db:monitor", "--count=1", "--timeout=30" ]
+            interval: 10s
+            timeout: 5s
+            retries: 3
 
     mysql:
         image: mysql:8.0
@@ -39,6 +44,11 @@ services:
         mem_limit: 256m
         cpus: 0.3
         command: --innodb-buffer-pool-size=128M --max-connections=50
+        healthcheck:
+            test: [ "CMD", "mysqladmin", "ping", "-h", "localhost" ]
+            interval: 5s
+            timeout: 5s
+            retries: 10
 
     nginx:
         image: nginx:alpine

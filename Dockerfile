@@ -74,5 +74,8 @@ COPY docker/supervisord.conf /etc/supervisor/conf.d/supervisord.conf
 
 EXPOSE 80
 
+COPY scripts/wait-for-mysql.sh /usr/local/bin/
+RUN chmod +x /usr/local/bin/wait-for-mysql.sh
+
 # Script de démarrage qui sera overridé par les volumes
-CMD ["/usr/bin/supervisord", "-c", "/etc/supervisor/conf.d/supervisord.conf"]
+CMD ["sh", "-c", "wait-for-mysql.sh mysql -- /usr/bin/supervisord -c /etc/supervisor/conf.d/supervisord.conf"]
