@@ -1,14 +1,14 @@
-# Dockerfile - Version simplifiée et robuste
+# Dockerfile - Version SQLite (ultra-léger)
 FROM php:8.4-fpm-alpine
 
-# Installation de tout en une fois pour éviter les problèmes
+# Installation des dépendances - plus besoin de mysql-client !
 RUN apk add --no-cache \
     git curl libpng-dev oniguruma-dev libxml2-dev zip unzip \
-    mysql-client nginx supervisor icu-dev libzip-dev && \
+    nginx supervisor icu-dev libzip-dev sqlite && \
     git config --global --add safe.directory /var/www/html && \
     docker-php-ext-configure intl && \
     docker-php-ext-configure zip && \
-    docker-php-ext-install pdo_mysql mbstring exif pcntl bcmath gd opcache intl zip && \
+    docker-php-ext-install pdo_sqlite pdo_mysql mbstring exif pcntl bcmath gd opcache intl zip && \
     addgroup -g 1000 -S www && \
     adduser -u 1000 -S www -G www && \
     mkdir -p /var/log/supervisor /var/run/supervisor /etc/supervisor/conf.d
@@ -32,25 +32,23 @@ RUN composer install --no-dev --optimize-autoloader --no-interaction --ignore-pl
      rm -f composer.lock && \
      composer install --no-dev --optimize-autoloader --no-interaction --ignore-platform-reqs)
 
-# Permissions finales
-RUN mkdir -p storage bootstrap/cache && \
-    chmod -R 775 storage bootstrap/cache && \
+# Permissions et création du fichier SQLite
+RUN mkdir -p storage bootstrap/cache database && \
+    touch database/database.sqlite && \
+    chmod -R 775 storage bootstrap/cache database && \
     chown -R www:www /var/www/html
 
-# Script wait-for-mysql
-COPY scripts/wait-for-mysql.sh /usr/local/bin/
-RUN chmod +x /usr/local/bin/wait-for-mysql.sh
-
-# Script d'entrée simple
+# Script d'entrée ultra-simple
 RUN cat > /usr/local/bin/docker-entrypoint.sh << 'EOF'
 #!/bin/bash
 set -e
-echo "🚀 Démarrage Laravel..."
+echo "🚀 Démarrage Laravel avec SQLite..."
 
-# Attendre MySQL si configuré
-if [ -n "$DB_HOST" ]; then
-    echo "⏳ Attente MySQL..."
-    /usr/local/bin/wait-for-mysql.sh "$DB_HOST" || echo "⚠️ Timeout MySQL"
+# Vérifier/créer la base SQLite
+if [ ! -f /var/www/html/database/database.sqlite ]; then
+    echo "📄 Création du fichier SQLite..."
+    touch /var/www/html/database/database.sqlite
+    chown www:www /var/www/html/database/database.sqlite
 fi
 
 echo "✅ Démarrage supervisord..."

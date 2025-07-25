@@ -5,17 +5,13 @@ services:
             dockerfile: Dockerfile
         container_name: laravel_app
         restart: unless-stopped
-        depends_on:
-            - mysql
         environment:
             - APP_ENV=production
             - APP_DEBUG=false
-            - DB_HOST=mysql
-            - DB_USERNAME=${DB_USERNAME}
-            - DB_PASSWORD=${DB_PASSWORD}
         volumes:
             - ./storage:/var/www/html/storage
             - ./bootstrap/cache:/var/www/html/bootstrap/cache
+            - ./database:/var/www/html/database
             - ./docker/supervisord.conf:/etc/supervisor/conf.d/supervisord.conf
             - ./docker/php-fpm.conf:/usr/local/etc/php-fpm.d/www.conf
             - certbot_certs:/etc/letsencrypt
@@ -23,32 +19,7 @@ services:
         networks:
             - laravel_network
         mem_limit: 512m
-        cpus: 0.5
-
-    mysql:
-        image: mysql:8.0
-        container_name: laravel_mysql
-        restart: unless-stopped
-        environment:
-            MYSQL_DATABASE: ${DB_DATABASE}
-            MYSQL_ROOT_PASSWORD: ${DB_PASSWORD}
-            MYSQL_USER: ${DB_USERNAME}
-            MYSQL_PASSWORD: ${DB_PASSWORD}
-            MYSQL_ROOT_HOST: "%"
-        volumes:
-            - mysql_data:/var/lib/mysql
-            - ./docker/mysql.cnf:/etc/mysql/conf.d/mysql.cnf
-        networks:
-            - laravel_network
-        mem_limit: 256m
-        cpus: 0.3
-        command: --innodb-buffer-pool-size=128M --max-connections=50 --innodb-use-native-aio=0 --innodb-flush-method=fsync
-        healthcheck:
-            test: ["CMD-SHELL", "mysqladmin ping -h localhost -u root -p${DB_PASSWORD} --silent || exit 1"]
-            interval: 10s
-            timeout: 10s
-            retries: 10
-            start_period: 60s
+        cpus: 0.7
 
     nginx:
         image: nginx:alpine
@@ -79,7 +50,6 @@ services:
             - nginx
 
 volumes:
-    mysql_data:
     certbot_certs:
     certbot_www:
 
