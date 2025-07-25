@@ -64,3 +64,4 @@ EXPOSE 80
 
 # Script de démarrage qui sera overridé par les volumes
 CMD ["/usr/bin/supervisord", "-c", "/etc/supervisor/conf.d/supervisord.conf"]
+
