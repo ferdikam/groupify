@@ -6,10 +6,14 @@ services:
         container_name: laravel_app
         restart: unless-stopped
         depends_on:
-            - mysql
+            mysql:
+                condition: service_healthy
         environment:
             - APP_ENV=production
             - APP_DEBUG=false
+            - DB_HOST=mysql
+            - DB_USERNAME=${DB_USERNAME}
+            - DB_PASSWORD=${DB_PASSWORD}
         volumes:
             - ./storage:/var/www/html/storage
             - ./bootstrap/cache:/var/www/html/bootstrap/cache
@@ -22,10 +26,11 @@ services:
         mem_limit: 512m
         cpus: 0.5
         healthcheck:
-            test: [ "CMD", "php", "artisan", "db:monitor", "--count=1", "--timeout=30" ]
-            interval: 10s
-            timeout: 5s
+            test: ["CMD", "php", "-v"]
+            interval: 30s
+            timeout: 10s
             retries: 3
+            start_period: 60s
 
     mysql:
         image: mysql:8.0
@@ -45,10 +50,11 @@ services:
         cpus: 0.3
         command: --innodb-buffer-pool-size=128M --max-connections=50
         healthcheck:
-            test: [ "CMD", "mysqladmin", "ping", "-h", "localhost" ]
+            test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
             interval: 5s
             timeout: 5s
-            retries: 10
+            retries: 20
+            start_period: 30s
 
     nginx:
         image: nginx:alpine
@@ -63,10 +69,16 @@ services:
             - certbot_certs:/etc/letsencrypt
             - certbot_www:/var/www/certbot
         depends_on:
-            - app
+            app:
+                condition: service_healthy
         networks:
             - laravel_network
         mem_limit: 64m
+        healthcheck:
+            test: ["CMD", "nginx", "-t"]
+            interval: 30s
+            timeout: 10s
+            retries: 3
 
     certbot:
         image: certbot/certbot

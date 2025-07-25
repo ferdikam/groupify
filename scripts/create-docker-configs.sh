@@ -1,3 +1,4 @@
+# scripts/create-docker-configs.sh
 #!/bin/bash
 set -e
 
@@ -10,7 +11,7 @@ cd "$PROJECT_PATH"
 mkdir -p docker
 
 # Configuration Nginx avec SSL
-cat > docker/nginx-ssl.conf << 'NGINXEOF'
+cat > docker/nginx-ssl.conf << 'EOF'
 worker_processes 1;
 events { worker_connections 512; }
 http {
@@ -29,12 +30,12 @@ http {
 
     server {
         listen 443 ssl http2;
-        server_name DOMAIN_PLACEHOLDER;
+        server_name groupifyglobal.com;
         root /var/www/html/public;
         index index.php;
 
-        ssl_certificate /etc/letsencrypt/live/DOMAIN_PLACEHOLDER/fullchain.pem;
-        ssl_certificate_key /etc/letsencrypt/live/DOMAIN_PLACEHOLDER/privkey.pem;
+        ssl_certificate /etc/letsencrypt/live/groupifyglobal.com/fullchain.pem;
+        ssl_certificate_key /etc/letsencrypt/live/groupifyglobal.com/privkey.pem;
         ssl_protocols TLSv1.2 TLSv1.3;
 
         location / { try_files $uri $uri/ /index.php?$query_string; }
@@ -45,13 +46,13 @@ http {
         }
     }
 }
-NGINXEOF
+EOF
 
 # Remplacer le placeholder par le vrai domaine
-sed -i "s/DOMAIN_PLACEHOLDER/$DOMAIN_NAME/g" docker/nginx-ssl.conf
+sed -i "s/groupifyglobal.com/$DOMAIN_NAME/g" docker/nginx-ssl.conf
 
 # Configuration Supervisord
-cat > docker/supervisord.conf << 'SUPERVISOREOF'
+cat > docker/supervisord.conf << 'EOF'
 [supervisord]
 nodaemon=true
 logfile=/var/log/supervisor/supervisord.log
@@ -63,10 +64,10 @@ autorestart=false
 [program:php-fpm]
 command=php-fpm
 autorestart=false
-SUPERVISOREOF
+EOF
 
 # Configuration PHP-FPM
-cat > docker/php-fpm.conf << 'PHPEOF'
+cat > docker/php-fpm.conf << 'EOF'
 [www]
 user = www
 group = www
@@ -76,14 +77,14 @@ pm.max_children = 10
 pm.start_servers = 2
 pm.min_spare_servers = 1
 pm.max_spare_servers = 3
-PHPEOF
+EOF
 
 # Configuration MySQL
-cat > docker/mysql.cnf << 'MYSQLEOF'
+cat > docker/mysql.cnf << 'EOF'
 [mysqld]
 innodb_buffer_pool_size = 128M
 max_connections = 50
 query_cache_size = 16M
-MYSQLEOF
+EOF
 
 echo "✅ Configurations Docker créées"
