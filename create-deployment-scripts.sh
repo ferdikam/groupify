@@ -1,16 +1,4 @@
-#!/bin/bash
-# create-deployment-scripts.sh
-# Script pour créer automatiquement tous les scripts de déploiement
-
-set -e
-
-echo "🚀 Création des scripts de déploiement..."
-
-# Créer le répertoire scripts
-mkdir -p scripts
-
-# Script 1: install-environment.sh
-cat > scripts/install-environment.sh << 'EOF'
+# scripts/install-environment.sh
 #!/bin/bash
 set -e
 
@@ -78,17 +66,34 @@ $SUDO ufw allow 443/tcp
 $SUDO ufw --force enable
 
 echo "✅ Environnement installé avec succès"
-EOF
 
-# Script 2: setup-project.sh
-cat > scripts/setup-project.sh << 'EOF'
+# ---
+
+# scripts/setup-project.sh
 #!/bin/bash
 set -e
 
 PROJECT_PATH=$1
 GITHUB_REPO=$2
+GITHUB_TOKEN=$3
 
 echo "📂 Configuration du projet..."
+echo "🔍 Debug - Arguments reçus:"
+echo "   PROJECT_PATH: '$PROJECT_PATH'"
+echo "   GITHUB_REPO: '$GITHUB_REPO'"
+echo "   GITHUB_TOKEN: $([ -n "$GITHUB_TOKEN" ] && echo '[SET]' || echo '[NOT SET]')"
+
+# Vérifier que les arguments obligatoires sont fournis
+if [ -z "$PROJECT_PATH" ]; then
+    echo "❌ Erreur: PROJECT_PATH est vide ou non défini"
+    echo "💡 Vérifiez que le secret PROJECT_PATH est configuré dans GitHub"
+    exit 1
+fi
+
+if [ -z "$GITHUB_REPO" ]; then
+    echo "❌ Erreur: GITHUB_REPO est vide ou non défini"
+    exit 1
+fi
 
 # Préfixe pour les commandes privilégiées
 SUDO=""
@@ -103,12 +108,31 @@ if [ -d "$PROJECT_PATH" ]; then
 fi
 
 echo "📥 Clonage du repository..."
+echo "🎯 Création du répertoire parent: $(dirname "$PROJECT_PATH")"
 mkdir -p "$(dirname "$PROJECT_PATH")"
-git clone "https://github.com/$GITHUB_REPO.git" "$PROJECT_PATH"
+
+# Construire l'URL avec token si fourni
+if [ -n "$GITHUB_TOKEN" ]; then
+    CLONE_URL="https://${GITHUB_TOKEN}@github.com/${GITHUB_REPO}.git"
+    echo "🔐 Utilisation du token GitHub pour le clonage..."
+else
+    CLONE_URL="https://github.com/${GITHUB_REPO}.git"
+    echo "🌐 Clonage public du repository..."
+fi
+
+echo "📂 Clonage vers: $PROJECT_PATH"
+echo "🔗 URL de clonage: https://github.com/${GITHUB_REPO}.git"
+
+# Cloner le repository
+git clone "$CLONE_URL" "$PROJECT_PATH"
 
 # Vérifier que le clonage a réussi
 if [ ! -d "$PROJECT_PATH/.git" ]; then
     echo "❌ Erreur: Le clonage Git a échoué"
+    echo "💡 Vérifiez que:"
+    echo "   - Le repository existe: https://github.com/$GITHUB_REPO"
+    echo "   - Le repository est public OU vous avez fourni un token valide"
+    echo "   - Votre serveur peut accéder à GitHub"
     exit 1
 fi
 
@@ -128,7 +152,11 @@ echo "📌 Utilisation de la branche: $BRANCH"
 
 # S'assurer qu'on est sur la bonne branche
 git checkout "$BRANCH"
-git pull origin "$BRANCH"
+
+# Nettoyer les credentials Git pour la sécurité
+if [ -n "$GITHUB_TOKEN" ]; then
+    git remote set-url origin "https://github.com/${GITHUB_REPO}.git"
+fi
 
 # Utiliser sudo seulement si nécessaire et disponible
 if [ -n "$SUDO" ]; then
@@ -137,11 +165,11 @@ else
     chown -R $USER:$USER "$PROJECT_PATH" 2>/dev/null || echo "⚠️ Impossible de changer les permissions - continuons"
 fi
 
-echo "✅ Projet configuré avec succès"
-EOF
+echo "✅ Projet configuré avec succès dans: $PROJECT_PATH"
 
-# Script 3: create-docker-configs.sh
-cat > scripts/create-docker-configs.sh << 'EOF'
+# ---
+
+# scripts/create-docker-configs.sh
 #!/bin/bash
 set -e
 
@@ -154,7 +182,7 @@ cd "$PROJECT_PATH"
 mkdir -p docker
 
 # Configuration Nginx avec SSL
-cat > docker/nginx-ssl.conf << 'NGINXEOF'
+cat > docker/nginx-ssl.conf << 'EOF'
 worker_processes 1;
 events { worker_connections 512; }
 http {
@@ -189,13 +217,13 @@ http {
         }
     }
 }
-NGINXEOF
+EOF
 
 # Remplacer le placeholder par le vrai domaine
 sed -i "s/DOMAIN_PLACEHOLDER/$DOMAIN_NAME/g" docker/nginx-ssl.conf
 
 # Configuration Supervisord
-cat > docker/supervisord.conf << 'SUPERVISOREOF'
+cat > docker/supervisord.conf << 'EOF'
 [supervisord]
 nodaemon=true
 logfile=/var/log/supervisor/supervisord.log
@@ -207,10 +235,10 @@ autorestart=false
 [program:php-fpm]
 command=php-fpm
 autorestart=false
-SUPERVISOREOF
+EOF
 
 # Configuration PHP-FPM
-cat > docker/php-fpm.conf << 'PHPEOF'
+cat > docker/php-fpm.conf << 'EOF'
 [www]
 user = www
 group = www
@@ -220,21 +248,21 @@ pm.max_children = 10
 pm.start_servers = 2
 pm.min_spare_servers = 1
 pm.max_spare_servers = 3
-PHPEOF
+EOF
 
 # Configuration MySQL
-cat > docker/mysql.cnf << 'MYSQLEOF'
+cat > docker/mysql.cnf << 'EOF'
 [mysqld]
 innodb_buffer_pool_size = 128M
 max_connections = 50
 query_cache_size = 16M
-MYSQLEOF
-
-echo "✅ Configurations Docker créées"
 EOF
 
-# Script 4: deploy-app.sh
-cat > scripts/deploy-app.sh << 'EOF'
+echo "✅ Configurations Docker créées"
+
+# ---
+
+# scripts/deploy-app.sh
 #!/bin/bash
 set -e
 
@@ -251,7 +279,7 @@ echo "🚀 Déploiement de l'application..."
 cd "$PROJECT_PATH"
 
 # Création du fichier .env
-cat > .env << ENVEOF
+cat > .env << EOF
 APP_NAME="Laravel Filament"
 APP_ENV=production
 APP_KEY=$APP_KEY
@@ -270,7 +298,7 @@ SSL_EMAIL=$SSL_EMAIL
 
 CACHE_DRIVER=file
 SESSION_DRIVER=file
-ENVEOF
+EOF
 
 # Création des répertoires
 mkdir -p storage/{app/public,framework/{cache,sessions,views},logs}
@@ -297,10 +325,10 @@ docker-compose exec -T app chown -R www:www /var/www/html/storage
 docker-compose exec -T app chown -R www:www /var/www/html/bootstrap/cache
 
 echo "✅ Application déployée"
-EOF
 
-# Script 5: setup-ssl.sh
-cat > scripts/setup-ssl.sh << 'EOF'
+# ---
+
+# scripts/setup-ssl.sh
 #!/bin/bash
 set -e
 
@@ -328,21 +356,3 @@ fi
 docker system prune -f
 
 echo "✅ SSL configuré"
-EOF
-
-# Rendre tous les scripts exécutables
-chmod +x scripts/*.sh
-
-echo "✅ Tous les scripts de déploiement ont été créés dans le répertoire 'scripts/'"
-echo ""
-echo "📋 Scripts créés :"
-echo "  - scripts/install-environment.sh"
-echo "  - scripts/setup-project.sh"
-echo "  - scripts/create-docker-configs.sh"
-echo "  - scripts/deploy-app.sh"
-echo "  - scripts/setup-ssl.sh"
-echo ""
-echo "🎯 Prochaines étapes :"
-echo "1. Ajoutez ces scripts à votre repository Git"
-echo "2. Configurez vos secrets GitHub"
-echo "3. Poussez sur la branche main pour déclencher le déploiement"

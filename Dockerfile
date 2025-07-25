@@ -12,9 +12,7 @@ RUN apk add --no-cache \
     unzip \
     mysql-client \
     nginx \
-    supervisor \
-    icu-dev \
-    libzip-dev  # Pour zip
+    supervisor
 
 # Installation des extensions PHP nécessaires
 RUN docker-php-ext-install \
@@ -24,9 +22,7 @@ RUN docker-php-ext-install \
     pcntl \
     bcmath \
     gd \
-    opcache \
-    intl \
-    zip     # Ajout de l'extension zip
+    opcache
 
 # Installation de Composer
 COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
@@ -46,9 +42,6 @@ WORKDIR /var/www/html
 RUN addgroup -g 1000 -S www && \
     adduser -u 1000 -S www -G www
 
-# Configurer Git pour éviter les problèmes de permissions
-RUN git config --global --add safe.directory /var/www/html
-
 # Copie des fichiers de l'application
 COPY --chown=www:www . /var/www/html
 
@@ -64,18 +57,10 @@ RUN chown -R www:www /var/www/html \
     && chmod -R 775 /var/www/html/storage \
     && chmod -R 775 /var/www/html/bootstrap/cache
 
-# Ajoutez ces lignes avant le CMD final
-RUN mkdir -p /var/log/supervisor /var/run/supervisor \
-    && touch /var/log/supervisor/supervisord.log \
-    && chown -R www:www /var/log/supervisor /var/run/supervisor
-
-# Copiez la configuration Supervisor
-COPY docker/supervisord.conf /etc/supervisor/conf.d/supervisord.conf
+# Créer les répertoires pour les configurations
+RUN mkdir -p /etc/supervisor/conf.d /etc/nginx/conf.d
 
 EXPOSE 80
 
-COPY scripts/wait-for-mysql.sh /usr/local/bin/
-RUN chmod +x /usr/local/bin/wait-for-mysql.sh
-
 # Script de démarrage qui sera overridé par les volumes
-CMD ["sh", "-c", "wait-for-mysql.sh mysql -- /usr/bin/supervisord -c /etc/supervisor/conf.d/supervisord.conf"]
+CMD ["/usr/bin/supervisord", "-c", "/etc/supervisor/conf.d/supervisord.conf"]
