@@ -13,7 +13,7 @@ RUN apk add --no-cache \
     mysql-client \
     nginx \
     supervisor \
-    icu-dev \  # Pour intl
+    icu-dev \
     libzip-dev  # Pour zip
 
 # Installation des extensions PHP nécessaires
