@@ -1,120 +1,59 @@
-# Dockerfile
+# Dockerfile - Version simplifiée et robuste
 FROM php:8.4-fpm-alpine
 
-# Installation des dépendances système minimales
+# Installation de tout en une fois pour éviter les problèmes
 RUN apk add --no-cache \
-    git \
-    curl \
-    libpng-dev \
-    oniguruma-dev \
-    libxml2-dev \
-    zip \
-    unzip \
-    mysql-client \
-    nginx \
-    supervisor \
-    icu-dev \
-    libzip-dev
-
-# Configuration Git AVANT la copie des fichiers
-RUN git config --global --add safe.directory /var/www/html
-
-# Installation des extensions PHP avec configuration explicite
-RUN docker-php-ext-configure intl && \
+    git curl libpng-dev oniguruma-dev libxml2-dev zip unzip \
+    mysql-client nginx supervisor icu-dev libzip-dev && \
+    git config --global --add safe.directory /var/www/html && \
+    docker-php-ext-configure intl && \
     docker-php-ext-configure zip && \
-    docker-php-ext-install -j$(nproc) \
-        pdo_mysql \
-        mbstring \
-        exif \
-        pcntl \
-        bcmath \
-        gd \
-        opcache \
-        intl \
-        zip
+    docker-php-ext-install pdo_mysql mbstring exif pcntl bcmath gd opcache intl zip && \
+    addgroup -g 1000 -S www && \
+    adduser -u 1000 -S www -G www && \
+    mkdir -p /var/log/supervisor /var/run/supervisor /etc/supervisor/conf.d
 
-# Vérification que les extensions sont bien installées
-RUN echo "🔍 Vérification des extensions PHP..." && \
-    php -m | grep intl && \
-    php -m | grep zip && \
-    php -m | grep pdo_mysql && \
-    echo "✅ Extensions PHP OK" || (echo "❌ Extensions manquantes" && php -m && exit 1)
-
-# Installation de Composer
+# Copier Composer
 COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
 
-# Configuration PHP optimisée pour 1Go RAM
-RUN echo "memory_limit=256M" >> /usr/local/etc/php/conf.d/docker-php-ram-limit.ini && \
-    echo "max_execution_time=300" >> /usr/local/etc/php/conf.d/docker-php-ram-limit.ini && \
-    echo "opcache.memory_consumption=64" >> /usr/local/etc/php/conf.d/docker-php-ram-limit.ini && \
-    echo "opcache.max_accelerated_files=4000" >> /usr/local/etc/php/conf.d/docker-php-ram-limit.ini && \
-    echo "opcache.revalidate_freq=60" >> /usr/local/etc/php/conf.d/docker-php-ram-limit.ini && \
-    echo "opcache.enable=1" >> /usr/local/etc/php/conf.d/docker-php-ram-limit.ini
+# Configuration PHP simple
+RUN echo "memory_limit=256M" > /usr/local/etc/php/conf.d/custom.ini && \
+    echo "max_execution_time=300" >> /usr/local/etc/php/conf.d/custom.ini && \
+    echo "opcache.enable=1" >> /usr/local/etc/php/conf.d/custom.ini
 
-# Création du répertoire de travail
 WORKDIR /var/www/html
 
-# Configuration des permissions
-RUN addgroup -g 1000 -S www && \
-    adduser -u 1000 -S www -G www
-
-# Copie des fichiers de l'application
+# Copier les fichiers
 COPY --chown=www:www . /var/www/html
 
-# Installation des dépendances PHP avec gestion d'erreurs robuste
-RUN if [ -f composer.json ]; then \
-        echo "📦 Diagnostic Composer..." && \
-        composer diagnose && \
-        echo "📋 Extensions PHP disponibles:" && \
-        php -m | grep -E "(intl|zip|pdo_mysql)" && \
-        echo "🔧 Installation des dépendances..." && \
-        composer install --no-dev --optimize-autoloader --no-interaction --ignore-platform-reqs; \
-    else \
-        echo "⚠️ Aucun composer.json trouvé"; \
-    fi
+# Installation Composer simplifiée
+RUN composer install --no-dev --optimize-autoloader --no-interaction --ignore-platform-reqs || \
+    (echo "⚠️ Première tentative échouée, essai sans lock file..." && \
+     rm -f composer.lock && \
+     composer install --no-dev --optimize-autoloader --no-interaction --ignore-platform-reqs)
 
-# Configuration des permissions Laravel
-RUN chown -R www:www /var/www/html && \
-    chmod -R 755 /var/www/html && \
-    mkdir -p /var/www/html/storage /var/www/html/bootstrap/cache && \
-    chmod -R 775 /var/www/html/storage && \
-    chmod -R 775 /var/www/html/bootstrap/cache
+# Permissions finales
+RUN mkdir -p storage bootstrap/cache && \
+    chmod -R 775 storage bootstrap/cache && \
+    chown -R www:www /var/www/html
 
-# Créer les répertoires pour les configurations
-RUN mkdir -p /var/log/supervisor /var/run/supervisor /etc/supervisor/conf.d && \
-    touch /var/log/supervisor/supervisord.log && \
-    chown -R www:www /var/log/supervisor /var/run/supervisor
-
-# Copier le script wait-for-mysql
+# Script wait-for-mysql
 COPY scripts/wait-for-mysql.sh /usr/local/bin/
 RUN chmod +x /usr/local/bin/wait-for-mysql.sh
 
-# Créer un script d'entrée personnalisé
+# Script d'entrée simple
 RUN cat > /usr/local/bin/docker-entrypoint.sh << 'EOF'
 #!/bin/bash
 set -e
+echo "🚀 Démarrage Laravel..."
 
-echo "🚀 Démarrage du conteneur Laravel..."
-
-# Vérifier les extensions PHP
-echo "🔍 Extensions PHP actives:"
-php -m | grep -E "(intl|zip|pdo_mysql)" || echo "⚠️ Certaines extensions manquent"
-
-# Attendre que MySQL soit prêt si les variables DB sont définies
-if [ -n "$DB_HOST" ] && [ -n "$DB_USERNAME" ] && [ -n "$DB_PASSWORD" ]; then
-    echo "⏳ Attente de MySQL..."
-    /usr/local/bin/wait-for-mysql.sh "$DB_HOST" || echo "⚠️ MySQL timeout - continuons"
+# Attendre MySQL si configuré
+if [ -n "$DB_HOST" ]; then
+    echo "⏳ Attente MySQL..."
+    /usr/local/bin/wait-for-mysql.sh "$DB_HOST" || echo "⚠️ Timeout MySQL"
 fi
 
-# Finaliser l'installation Composer si nécessaire
-if [ -f composer.json ] && [ ! -f /tmp/composer-scripts-done ]; then
-    echo "📦 Finalisation Composer..."
-    composer run-script post-autoload-dump --no-interaction || echo "⚠️ Scripts Composer échoués"
-    touch /tmp/composer-scripts-done
-fi
-
-# Démarrer supervisord
-echo "✅ Démarrage des services..."
+echo "✅ Démarrage supervisord..."
 exec /usr/bin/supervisord -c /etc/supervisor/conf.d/supervisord.conf
 EOF
 
