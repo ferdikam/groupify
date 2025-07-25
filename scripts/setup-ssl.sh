@@ -1,4 +1,3 @@
- scripts/setup-ssl.sh
 #!/bin/bash
 set -e
 
