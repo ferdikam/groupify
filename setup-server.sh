@@ -85,8 +85,8 @@ APP_URL=https://groupifyglobal.com
 DB_CONNECTION=mysql
 DB_HOST=mysql
 DB_PORT=3306
-DB_DATABASE=laravel
-DB_USERNAME=laravel
+DB_DATABASE=groupify_db
+DB_USERNAME=groupify_user
 DB_PASSWORD=
 
 DOMAIN_NAME=votre-domaine.com
