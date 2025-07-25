@@ -1,0 +1,11 @@
+[mysqld]
+# Optimisations pour 256MB RAM
+innodb_buffer_pool_size = 128M
+innodb_log_file_size = 32M
+innodb_flush_log_at_trx_commit = 2
+innodb_flush_method = O_DIRECT
+max_connections = 50
+query_cache_size = 16M
+query_cache_limit = 1M
+tmp_table_size = 32M
+max_heap_table_size = 32M
