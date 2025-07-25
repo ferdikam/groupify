@@ -64,8 +64,11 @@ RUN chown -R www:www /var/www/html \
     && chmod -R 775 /var/www/html/storage \
     && chmod -R 775 /var/www/html/bootstrap/cache
 
-# Créer les répertoires pour les configurations
-RUN mkdir -p /etc/supervisor/conf.d /etc/nginx/conf.d
+# Créer les répertoires pour Supervisor
+RUN mkdir -p /var/log/supervisor /var/run/supervisor
+
+# Copier la configuration Supervisor
+COPY supervisord.conf /etc/supervisor/conf.d/supervisord.conf
 
 EXPOSE 80
 
