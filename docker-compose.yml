@@ -6,8 +6,7 @@ services:
         container_name: laravel_app
         restart: unless-stopped
         depends_on:
-            mysql:
-                condition: service_healthy
+            - mysql
         environment:
             - APP_ENV=production
             - APP_DEBUG=false
@@ -25,12 +24,6 @@ services:
             - laravel_network
         mem_limit: 512m
         cpus: 0.5
-        healthcheck:
-            test: ["CMD", "php", "-v"]
-            interval: 30s
-            timeout: 10s
-            retries: 3
-            start_period: 60s
 
     mysql:
         image: mysql:8.0
@@ -41,6 +34,7 @@ services:
             MYSQL_ROOT_PASSWORD: ${DB_PASSWORD}
             MYSQL_USER: ${DB_USERNAME}
             MYSQL_PASSWORD: ${DB_PASSWORD}
+            MYSQL_ROOT_HOST: "%"
         volumes:
             - mysql_data:/var/lib/mysql
             - ./docker/mysql.cnf:/etc/mysql/conf.d/mysql.cnf
@@ -48,13 +42,13 @@ services:
             - laravel_network
         mem_limit: 256m
         cpus: 0.3
-        command: --innodb-buffer-pool-size=128M --max-connections=50
+        command: --innodb-buffer-pool-size=128M --max-connections=50 --innodb-use-native-aio=0 --innodb-flush-method=fsync
         healthcheck:
-            test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
-            interval: 5s
-            timeout: 5s
-            retries: 20
-            start_period: 30s
+            test: ["CMD-SHELL", "mysqladmin ping -h localhost -u root -p${DB_PASSWORD} --silent || exit 1"]
+            interval: 10s
+            timeout: 10s
+            retries: 10
+            start_period: 60s
 
     nginx:
         image: nginx:alpine
@@ -69,16 +63,10 @@ services:
             - certbot_certs:/etc/letsencrypt
             - certbot_www:/var/www/certbot
         depends_on:
-            app:
-                condition: service_healthy
+            - app
         networks:
             - laravel_network
         mem_limit: 64m
-        healthcheck:
-            test: ["CMD", "nginx", "-t"]
-            interval: 30s
-            timeout: 10s
-            retries: 3
 
     certbot:
         image: certbot/certbot
