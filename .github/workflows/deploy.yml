@@ -44,36 +44,50 @@ jobs:
           PROJECT_PATH="${{ secrets.PROJECT_PATH }}"
           if [ -z "$PROJECT_PATH" ]; then
             PROJECT_PATH="/home/deploy/groupify"
+            echo "✅ Utilisation du chemin par défaut: $PROJECT_PATH"
+          else
+            echo "✅ Utilisation du PROJECT_PATH configuré: $PROJECT_PATH"
           fi
 
-          # Créer une archive du code source
-          tar -czf project.tar.gz --exclude='.git' --exclude='node_modules' .
+          # Créer une archive du code source (exclure plus de fichiers)
+          echo "📦 Création de l'archive du projet..."
+          tar -czf project.tar.gz \
+            --exclude='.git' \
+            --exclude='node_modules' \
+            --exclude='.github' \
+            --exclude='vendor' \
+            --exclude='storage/logs' \
+            --exclude='*.log' \
+            --exclude='.env' \
+            --warning=no-file-changed \
+            .
 
-          # Envoyer l'archive au serveur
+          echo "📤 Envoi de l'archive au serveur..."
           scp project.tar.gz ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}:/tmp/
 
-          # Extraire et configurer sur le serveur
+          echo "🚀 Configuration du projet sur le serveur..."
           ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} "
-            # Nettoyer et créer le répertoire
+            set -e
+            echo '🧹 Nettoyage du répertoire cible...'
             rm -rf '$PROJECT_PATH'
             mkdir -p '$PROJECT_PATH'
 
-            # Extraire l'archive
+            echo '📂 Extraction de l archive...'
             tar -xzf /tmp/project.tar.gz -C '$PROJECT_PATH'
 
-            # Initialiser Git
+            echo '🔧 Configuration Git...'
             cd '$PROJECT_PATH'
             git init
             git add .
-            git commit -m 'Initial deployment commit'
+            git commit -m 'Initial deployment commit' || echo 'Git commit ignoré'
 
-            # Configurer les permissions
-            chown -R \$USER:\$USER '$PROJECT_PATH' 2>/dev/null || sudo chown -R \$USER:\$USER '$PROJECT_PATH'
+            echo '🔑 Configuration des permissions...'
+            chown -R \$USER:\$USER '$PROJECT_PATH' 2>/dev/null || sudo chown -R \$USER:\$USER '$PROJECT_PATH' || echo 'Permissions OK'
 
-            # Nettoyer
+            echo '🧹 Nettoyage temporaire...'
             rm -f /tmp/project.tar.gz
 
-            echo '✅ Projet configuré via upload direct'
+            echo '✅ Projet configuré dans: $PROJECT_PATH'
           "
 
       - name: Create Docker configurations (AVANT le build)
