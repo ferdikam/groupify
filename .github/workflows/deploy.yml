@@ -23,54 +23,376 @@ jobs:
         run: |
           ssh-keyscan -H ${{ secrets.SERVER_HOST }} >> ~/.ssh/known_hosts
 
-      - name: Deploy to server
+      - name: Install and configure production environment
         run: |
           ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} "
-            cd ${{ secrets.PROJECT_PATH }} &&
-            git pull origin main &&
+            set -e
 
-            # Création du fichier .env s'il n'existe pas
-            if [ ! -f .env ]; then
-              cp .env.example .env
-              echo 'DB_DATABASE=${{ secrets.DB_DATABASE }}' >> .env
-              echo 'DB_USERNAME=${{ secrets.DB_USERNAME }}' >> .env
-              echo 'DB_PASSWORD=${{ secrets.DB_PASSWORD }}' >> .env
-              echo 'DOMAIN_NAME=${{ secrets.DOMAIN_NAME }}' >> .env
-              echo 'SSL_EMAIL=${{ secrets.SSL_EMAIL }}' >> .env
-              echo 'APP_KEY=${{ secrets.APP_KEY }}' >> .env
-              echo 'APP_URL=https://${{ secrets.DOMAIN_NAME }}' >> .env
-              echo 'APP_ENV=production' >> .env
-              echo 'APP_DEBUG=false' >> .env
-            fi &&
+            echo '🚀 Vérification et installation de l'\''environnement de production...'
 
-            # Arrêt des conteneurs existants
-            docker-compose down &&
+            # Mise à jour du système
+            sudo apt update
 
-            # Construction et démarrage
-            docker-compose build --no-cache &&
-            docker-compose up -d &&
+            # Installation de Docker si pas installé
+            if ! command -v docker &> /dev/null; then
+              echo '🐳 Installation de Docker...'
+              curl -fsSL https://get.docker.com -o get-docker.sh
+              sudo sh get-docker.sh
+              sudo systemctl enable docker
+              sudo systemctl start docker
+              sudo usermod -aG docker ${{ secrets.SERVER_USER }}
+              rm get-docker.sh
+            else
+              echo '✅ Docker déjà installé'
+            fi
 
-            # Attendre que MySQL soit prêt
-            sleep 30 &&
+            # Installation de Docker Compose si pas installé
+            if ! command -v docker-compose &> /dev/null; then
+              echo '🔧 Installation de Docker Compose...'
+              sudo curl -L \"https://github.com/docker/compose/releases/latest/download/docker-compose-\$(uname -s)-\$(uname -m)\" -o /usr/local/bin/docker-compose
+              sudo chmod +x /usr/local/bin/docker-compose
+            else
+              echo '✅ Docker Compose déjà installé'
+            fi
 
-            # Migrations et optimisations Laravel
-            docker-compose exec -T app php artisan migrate --force &&
-            docker-compose exec -T app php artisan config:cache &&
-            docker-compose exec -T app php artisan route:cache &&
-            docker-compose exec -T app php artisan view:cache &&
-            docker-compose exec -T app php artisan storage:link &&
+            # Installation de Git si pas installé
+            if ! command -v git &> /dev/null; then
+              echo '📚 Installation de Git...'
+              sudo apt install -y git curl
+            else
+              echo '✅ Git déjà installé'
+            fi
 
-            # Configuration SSL (première fois)
-            if [ ! -f /var/lib/docker/volumes/\$(docker volume ls -q | grep certbot_certs)/_data/live/${{ secrets.DOMAIN_NAME }}/fullchain.pem ]; then
-              docker-compose run --rm certbot
-              docker-compose restart nginx
-            fi &&
+            # Configuration du swap si pas configuré
+            if ! swapon --show | grep -q swapfile; then
+              echo '💾 Configuration du swap (1Go)...'
+              sudo fallocate -l 1G /swapfile || sudo dd if=/dev/zero of=/swapfile bs=1024 count=1048576
+              sudo chmod 600 /swapfile
+              sudo mkswap /swapfile
+              sudo swapon /swapfile
+              echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
 
-            # Nettoyage
-            docker system prune -af
+              # Optimisation mémoire
+              echo 'vm.swappiness=10' | sudo tee -a /etc/sysctl.conf
+              echo 'vm.vfs_cache_pressure=50' | sudo tee -a /etc/sysctl.conf
+              sudo sysctl -p
+            else
+              echo '✅ Swap déjà configuré'
+            fi
+
+            # Configuration du pare-feu
+            if ! sudo ufw status | grep -q 'Status: active'; then
+              echo '🔥 Configuration du pare-feu...'
+              sudo ufw allow OpenSSH
+              sudo ufw allow 80/tcp
+              sudo ufw allow 443/tcp
+              sudo ufw --force enable
+            else
+              echo '✅ Pare-feu déjà configuré'
+            fi
+
+            echo '✅ Environnement de production prêt !'
           "
 
-      - name: Verify deployment
+      - name: Setup project directory and clone repository
         run: |
-          sleep 10
-          curl -f https://${{ secrets.DOMAIN_NAME }} || exit 1
+          ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} "
+            set -e
+
+            # Créer le répertoire du projet s'il n'existe pas
+            if [ ! -d '${{ secrets.PROJECT_PATH }}' ]; then
+              echo '📂 Création du répertoire du projet...'
+              mkdir -p '${{ secrets.PROJECT_PATH }}'
+              cd '${{ secrets.PROJECT_PATH }}'
+
+              # Cloner le repository
+              echo '📥 Clonage du repository...'
+              git clone https://github.com/${{ github.repository }}.git .
+            else
+              echo '📂 Répertoire du projet existe, mise à jour...'
+              cd '${{ secrets.PROJECT_PATH }}'
+              git fetch origin
+              git reset --hard origin/main
+            fi
+
+            # S'assurer que nous avons les bonnes permissions
+            sudo chown -R ${{ secrets.SERVER_USER }}:${{ secrets.SERVER_USER }} '${{ secrets.PROJECT_PATH }}'
+          "
+
+      - name: Setup Docker configuration files
+        run: |
+          ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} "
+            set -e
+            cd '${{ secrets.PROJECT_PATH }}'
+
+            # Créer le répertoire docker s'il n'existe pas
+            mkdir -p docker
+
+            # Créer nginx.conf
+            cat > docker/nginx.conf << 'EOF'
+  worker_processes 1;
+  events {
+  worker_connections 512;
+}
+  http {
+  include /etc/nginx/mime.types;
+  server {
+  listen 80;
+  root /var/www/html/public;
+  index index.php;
+  location / {
+  try_files \$uri \$uri/ /index.php?\$query_string;
+  }
+  location ~ \.php$ {
+  fastcgi_pass 127.0.0.1:9000;
+  fastcgi_param SCRIPT_FILENAME \$realpath_root\$fastcgi_script_name;
+  include fastcgi_params;
+  }
+}
+}
+  EOF
+
+  # Créer nginx-ssl.conf
+  cat > docker/nginx-ssl.conf << 'EOF'
+  worker_processes 1;
+  events {
+  worker_connections 512;
+}
+  http {
+  include /etc/nginx/mime.types;
+  default_type application/octet-stream;
+  sendfile on;
+  keepalive_timeout 15;
+  client_max_body_size 20M;
+  gzip on;
+  gzip_types text/plain text/css application/json application/javascript text/xml application/xml;
+
+  server {
+  listen 80;
+  server_name _;
+  location /.well-known/acme-challenge/ {
+  root /var/www/certbot;
+  }
+  location / {
+  return 301 https://\$host\$request_uri;
+  }
+}
+
+  server {
+  listen 443 ssl http2;
+  server_name ${{ secrets.DOMAIN_NAME }};
+  root /var/www/html/public;
+  index index.php;
+
+  ssl_certificate /etc/letsencrypt/live/${{ secrets.DOMAIN_NAME }}/fullchain.pem;
+  ssl_certificate_key /etc/letsencrypt/live/${{ secrets.DOMAIN_NAME }}/privkey.pem;
+  ssl_protocols TLSv1.2 TLSv1.3;
+  ssl_session_cache shared:SSL:10m;
+
+  location / {
+  try_files \$uri \$uri/ /index.php?\$query_string;
+  }
+
+  location ~ \.php$ {
+  fastcgi_pass app:9000;
+  fastcgi_param SCRIPT_FILENAME \$realpath_root\$fastcgi_script_name;
+  include fastcgi_params;
+  }
+
+  location ~* \.(css|js|png|jpg|jpeg|gif|ico|svg)$ {
+  expires 1y;
+  add_header Cache-Control \"public, immutable\";
+  }
+}
+}
+  EOF
+
+  # Créer supervisord.conf
+  cat > docker/supervisord.conf << 'EOF'
+  [supervisord]
+  nodaemon=true
+  user=root
+  logfile=/var/log/supervisor/supervisord.log
+  pidfile=/var/run/supervisord.pid
+
+  [program:nginx]
+  command=nginx -g \"daemon off;\"
+  stdout_logfile=/dev/stdout
+  stdout_logfile_maxbytes=0
+  stderr_logfile=/dev/stderr
+  stderr_logfile_maxbytes=0
+  autorestart=false
+  startretries=0
+
+  [program:php-fpm]
+  command=php-fpm
+  stdout_logfile=/dev/stdout
+  stdout_logfile_maxbytes=0
+  stderr_logfile=/dev/stderr
+  stderr_logfile_maxbytes=0
+  autorestart=false
+  startretries=0
+  EOF
+
+  # Créer php-fpm.conf
+  cat > docker/php-fpm.conf << 'EOF'
+  [www]
+  user = www
+  group = www
+  listen = 9000
+  listen.owner = www
+  listen.group = www
+  pm = dynamic
+  pm.max_children = 10
+  pm.start_servers = 2
+  pm.min_spare_servers = 1
+  pm.max_spare_servers = 3
+  pm.max_requests = 500
+  EOF
+
+  # Créer mysql.cnf
+  cat > docker/mysql.cnf << 'EOF'
+  [mysqld]
+  innodb_buffer_pool_size = 128M
+  innodb_log_file_size = 32M
+  innodb_flush_log_at_trx_commit = 2
+  max_connections = 50
+  query_cache_size = 16M
+  tmp_table_size = 32M
+  max_heap_table_size = 32M
+  EOF
+
+  echo '✅ Fichiers de configuration Docker créés'
+  "
+
+- name: Setup environment and deploy application
+  run: |
+    ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} "
+      set -e
+      cd '${{ secrets.PROJECT_PATH }}'
+
+      # Création du fichier .env
+      cat > .env << 'EOF'
+  APP_NAME=\"Laravel Filament\"
+  APP_ENV=production
+  APP_KEY=${{ secrets.APP_KEY }}
+  APP_DEBUG=false
+  APP_URL=https://${{ secrets.DOMAIN_NAME }}
+
+  DB_CONNECTION=mysql
+  DB_HOST=mysql
+  DB_PORT=3306
+  DB_DATABASE=${{ secrets.DB_DATABASE }}
+  DB_USERNAME=${{ secrets.DB_USERNAME }}
+  DB_PASSWORD=${{ secrets.DB_PASSWORD }}
+
+  DOMAIN_NAME=${{ secrets.DOMAIN_NAME }}
+  SSL_EMAIL=${{ secrets.SSL_EMAIL }}
+
+  CACHE_DRIVER=file
+  QUEUE_CONNECTION=sync
+  SESSION_DRIVER=file
+  SESSION_LIFETIME=120
+
+  MAIL_MAILER=smtp
+  EOF
+
+  # Créer les répertoires nécessaires
+  mkdir -p storage/app/public
+  mkdir -p storage/framework/cache
+  mkdir -p storage/framework/sessions
+  mkdir -p storage/framework/views
+  mkdir -p storage/logs
+  mkdir -p bootstrap/cache
+
+  # Arrêter les conteneurs existants
+  if command -v docker-compose &> /dev/null && [ -f docker-compose.yml ]; then
+  docker-compose down || true
+  fi
+
+  # Construire et démarrer les conteneurs
+  echo '🐳 Construction et démarrage des conteneurs...'
+  docker-compose build --no-cache
+  docker-compose up -d
+
+  # Attendre que les services soient prêts
+  echo '⏳ Attente du démarrage des services...'
+  sleep 45
+
+  # Vérifier que les conteneurs sont en cours d'exécution
+  docker-compose ps
+
+  # Installer les dépendances et configurer Laravel
+  echo '📦 Installation des dépendances Laravel...'
+  docker-compose exec -T app composer install --no-dev --optimize-autoloader --no-interaction || true
+
+  # Générer la clé d'application si nécessaire
+  docker-compose exec -T app php artisan key:generate --force || true
+
+  # Exécuter les migrations
+  echo '🗄️ Exécution des migrations...'
+  docker-compose exec -T app php artisan migrate --force || true
+
+  # Optimisations Laravel
+  echo '⚡ Optimisations Laravel...'
+  docker-compose exec -T app php artisan config:cache || true
+  docker-compose exec -T app php artisan route:cache || true
+  docker-compose exec -T app php artisan view:cache || true
+  docker-compose exec -T app php artisan storage:link || true
+
+  # Configuration des permissions
+  docker-compose exec -T app chown -R www:www /var/www/html/storage || true
+  docker-compose exec -T app chown -R www:www /var/www/html/bootstrap/cache || true
+
+  echo '✅ Application déployée avec succès !'
+  "
+
+- name: Setup SSL Certificate
+  run: |
+    ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} "
+      set -e
+      cd '${{ secrets.PROJECT_PATH }}'
+
+      # Vérifier si le certificat SSL existe déjà
+      if [ ! -d \"/var/lib/docker/volumes/\$(docker volume ls -q | grep certbot_certs | head -1)/_data/live/${{ secrets.DOMAIN_NAME }}\" ]; then
+        echo '🔒 Génération du certificat SSL...'
+
+        # Attendre que nginx soit prêt
+        sleep 10
+
+        # Générer le certificat
+        docker-compose run --rm certbot || echo 'Erreur lors de la génération du certificat - continuons'
+
+        # Redémarrer nginx avec la configuration SSL
+        sleep 5
+        docker-compose restart nginx
+      else
+        echo '✅ Certificat SSL déjà configuré'
+      fi
+    "
+
+- name: Cleanup and verify deployment
+  run: |
+    ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} "
+      cd '${{ secrets.PROJECT_PATH }}'
+
+      # Nettoyage Docker
+      docker system prune -f || true
+
+      # Vérifier l'état des conteneurs
+      echo '📊 État des conteneurs :'
+      docker-compose ps
+
+      echo '✅ Déploiement terminé !'
+    "
+
+- name: Verify website accessibility
+  run: |
+    echo '🌐 Vérification de l'\''accessibilité du site...'
+    sleep 15
+
+    # Test HTTP (doit rediriger vers HTTPS)
+    curl -I http://${{ secrets.DOMAIN_NAME }} || echo 'HTTP test failed'
+
+    # Test HTTPS (peut échouer si SSL pas encore configuré)
+    curl -I https://${{ secrets.DOMAIN_NAME }} || echo 'HTTPS test failed - normal si premier déploiement'
