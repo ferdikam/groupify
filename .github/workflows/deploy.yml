@@ -1,139 +1,100 @@
-# .github/workflows/deploy.yml
-name: Deploy Laravel Filament
+name: Deploy to Production
 
 on:
   push:
-    branches: [main]
-  workflow_dispatch:
+    branches: [ main ]
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup SSH
-        uses: webfactory/ssh-agent@v0.7.0
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
         with:
-          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+          php-version: '8.3'  # ou '8.4' selon votre installation
+          extensions: mbstring, xml, ctype, iconv, intl, pdo_sqlite, dom, filter, gd, iconv, json, mbstring, pdo
 
-      - name: Add server to known hosts
-        run: ssh-keyscan -H ${{ secrets.SERVER_HOST }} >> ~/.ssh/known_hosts
+      - name: Cache Composer packages
+        id: composer-cache
+        uses: actions/cache@v3
+        with:
+          path: vendor
+          key: ${{ runner.os }}-php-${{ hashFiles('**/composer.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-php-
 
-      - name: Copy deployment scripts to server
-        run: |
-          scp -r ./scripts ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}:/tmp/
-          ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} "chmod +x /tmp/scripts/*.sh"
+      - name: Install dependencies
+        run: composer install --no-dev --optimize-autoloader
 
-      - name: Install production environment
-        run: |
-          ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} "/tmp/scripts/install-environment.sh"
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
 
-      - name: Verify secrets configuration
-        run: |
-          echo "🔍 Vérification des secrets (les valeurs ne s'affichent pas pour la sécurité):"
-          echo "PROJECT_PATH défini: ${{ secrets.PROJECT_PATH != '' }}"
-          echo "SERVER_USER défini: ${{ secrets.SERVER_USER != '' }}"
-          echo "SERVER_HOST défini: ${{ secrets.SERVER_HOST != '' }}"
-          echo "Repository: ${{ github.repository }}"
+      - name: Install NPM dependencies
+        run: npm ci
 
-      - name: Setup project (Alternative - Upload code directly)
-        run: |
-          # Force la valeur par défaut pour éviter les problèmes
-          PROJECT_PATH="/home/deploy/groupify"
-          echo "✅ Utilisation du chemin fixe: $PROJECT_PATH"
+      - name: Build assets
+        run: npm run build
 
-          # Créer une archive du code source avec gestion d'erreurs
-          echo "📦 Création de l'archive du projet..."
-          tar -czf project.tar.gz \
-            --exclude='.git' \
-            --exclude='node_modules' \
-            --exclude='.github' \
-            --exclude='vendor' \
-            --exclude='storage/logs' \
-            --exclude='storage/framework/cache' \
-            --exclude='*.log' \
-            --exclude='.env' \
-            --warning=no-file-changed \
-            --ignore-failed-read \
-            . || {
-              echo "⚠️ Erreur tar, essai avec méthode alternative..."
-              find . -type f \
-                ! -path './.git/*' \
-                ! -path './node_modules/*' \
-                ! -path './.github/*' \
-                ! -path './vendor/*' \
-                ! -name '*.log' \
-                -print0 | tar -czf project.tar.gz --null -T -
-            }
-
-          echo "📤 Envoi de l'archive au serveur ($(du -h project.tar.gz | cut -f1))..."
-          scp project.tar.gz ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}:/tmp/
-
-          echo "🚀 Configuration du projet sur le serveur..."
-          ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} "
-            set -e
-
-            PROJECT_PATH='/home/deploy/groupify'
-            echo '📍 Chemin cible: \$PROJECT_PATH'
-
-            echo '🧹 Nettoyage du répertoire cible...'
-            rm -rf \"\$PROJECT_PATH\"
-            mkdir -p \"\$PROJECT_PATH\"
-
-            echo '📂 Extraction de l archive...'
-            cd \"\$PROJECT_PATH\"
-            tar -xzf /tmp/project.tar.gz
-
-            echo '🔧 Configuration Git...'
-            git init || echo 'Git init ignoré'
-            git add . || echo 'Git add ignoré'
-            git commit -m 'Initial deployment commit' || echo 'Git commit ignoré'
-
-            echo '🔑 Configuration des permissions...'
-            chown -R \$USER:\$USER \"\$PROJECT_PATH\" 2>/dev/null || sudo chown -R \$USER:\$USER \"\$PROJECT_PATH\" || echo 'Permissions déjà OK'
-
-            echo '📋 Vérification du contenu...'
-            ls -la \"\$PROJECT_PATH\" | head -10
-
-            echo '🧹 Nettoyage temporaire...'
-            rm -f /tmp/project.tar.gz
-
-            echo '✅ Projet configuré avec succès dans: \$PROJECT_PATH'
-          "
-
-      - name: Create Docker configurations
-        run: |
-          PROJECT_PATH="/home/deploy/groupify"
-          echo "🐳 Configuration Docker pour: $PROJECT_PATH"
-
-          ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} "/tmp/scripts/create-docker-configs.sh '$PROJECT_PATH' '${{ secrets.DOMAIN_NAME }}'"
-
-      - name: Deploy application (HTTP Only)
+      - name: Create deployment artifact
         env:
-          APP_KEY: ${{ secrets.APP_KEY }}
-          DOMAIN_NAME: ${{ secrets.DOMAIN_NAME }}
-          SSL_EMAIL: ${{ secrets.SSL_EMAIL }}
-        run: |
-          PROJECT_PATH="/home/deploy/groupify"
-          echo "🚀 Déploiement HTTP vers: $PROJECT_PATH"
+          GITHUB_SHA: ${{ github.sha }}
+        run: tar -czf "${GITHUB_SHA}".tar.gz --exclude=*.git --exclude=node_modules *
 
-          # Note: Nouveau format du script deploy-app.sh (4 paramètres au lieu de 7)
-          ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} "/tmp/scripts/deploy-app.sh '$PROJECT_PATH' '$APP_KEY' '$DOMAIN_NAME' '$SSL_EMAIL'"
+      - name: Store artifact for distribution
+        uses: actions/upload-artifact@v3
+        with:
+          name: app-build
+          path: ${{ github.sha }}.tar.gz
 
+      - name: Deploy to server
+        uses: appleboy/ssh-action@v1.0.0
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            cd /var/www/groupifyglobal.com
+            wget -O "${GITHUB_SHA}.tar.gz" "${{ secrets.ARTIFACT_URL }}"
+            tar -xzf "${GITHUB_SHA}.tar.gz"
 
-      - name: Verify deployment
-        run: |
-          sleep 15
-          curl -I http://${{ secrets.DOMAIN_NAME }} || echo "HTTP test completed"
+            # Backup current release
+            if [ -d "current" ]; then
+              mv current "backup-$(date +%Y%m%d_%H%M%S)"
+            fi
 
-          # Afficher les logs en cas de problème
-          ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} "
-            cd /home/deploy/groupify
-            echo '📊 Statut des conteneurs:'
-            docker-compose ps
-            echo '📋 Logs récents:'
-            docker-compose logs --tail=20
-          "
+            # Create new release directory
+            mkdir -p releases/${GITHUB_SHA}
+            mv * releases/${GITHUB_SHA}/ 2>/dev/null || true
+
+            # Create symlink to current
+            ln -sfn releases/${GITHUB_SHA} current
+
+            # Set permissions
+            chown -R deployer:www-data /var/www/groupifyglobal.com
+            chmod -R 755 /var/www/groupifyglobal.com/current
+            chmod -R 775 /var/www/groupifyglobal.com/current/storage
+            chmod -R 775 /var/www/groupifyglobal.com/current/bootstrap/cache
+
+            # Laravel deployment commands
+            cd current
+            php artisan config:cache
+            php artisan route:cache
+            php artisan view:cache
+            php artisan migrate --force
+            php artisan storage:link
+
+            # Restart services (adaptez selon votre version PHP)
+            sudo systemctl reload php8.3-fpm  # ou php8.4-fpm
+            sudo systemctl reload nginx
+
+            # Clean old releases (keep last 5)
+            cd /var/www/groupifyglobal.com/releases
+            ls -t | tail -n +6 | xargs -d '\n' rm -rf --
+        env:
+          GITHUB_SHA: ${{ github.sha }}
