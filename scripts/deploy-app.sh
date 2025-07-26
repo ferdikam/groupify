@@ -16,7 +16,7 @@ APP_NAME="Laravel Filament"
 APP_ENV=production
 APP_KEY=$APP_KEY
 APP_DEBUG=false
-APP_URL=https://$DOMAIN_NAME
+APP_URL=http://$DOMAIN_NAME
 
 # Configuration SQLite
 DB_CONNECTION=sqlite

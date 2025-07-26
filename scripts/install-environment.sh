@@ -1,4 +1,3 @@
-# scripts/install-environment.sh
 #!/bin/bash
 set -e
 

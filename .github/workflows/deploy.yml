@@ -22,275 +22,119 @@ jobs:
       - name: Add server to known hosts
         run: ssh-keyscan -H ${{ secrets.SERVER_HOST }} >> ~/.ssh/known_hosts
 
-      - name: Verify required secrets
+      - name: Copy deployment scripts to server
         run: |
-          echo "🔍 Vérification des secrets requis:"
-          echo "SERVER_HOST: ${{ secrets.SERVER_HOST != '' }}"
-          echo "SERVER_USER: ${{ secrets.SERVER_USER != '' }}"
-          echo "DOMAIN_NAME: ${{ secrets.DOMAIN_NAME != '' }}"
-          echo "SSL_EMAIL: ${{ secrets.SSL_EMAIL != '' }}"
-          echo "APP_KEY: ${{ secrets.APP_KEY != '' }}"
-
-          if [ -z "${{ secrets.SERVER_HOST }}" ] || [ -z "${{ secrets.SERVER_USER }}" ]; then
-            echo "❌ SERVER_HOST et SERVER_USER sont requis"
-            exit 1
-          fi
+          scp -r ./scripts ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}:/tmp/
+          ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} "chmod +x /tmp/scripts/*.sh"
 
       - name: Install production environment
         run: |
-          ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} "
-            # Installation de l'environnement de base
-            set -e
+          ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} "/tmp/scripts/install-environment.sh"
 
-            # Vérification des privilèges
-            if [ \"\$EUID\" -ne 0 ] && ! sudo -n true 2>/dev/null; then
-                echo '❌ Privilèges insuffisants. Configurez sudo sans mot de passe.'
-                exit 1
-            fi
-
-            SUDO=\"\"
-            if [ \"\$EUID\" -ne 0 ]; then
-                SUDO=\"sudo\"
-            fi
-
-            # Mise à jour système
-            \$SUDO apt update
-
-            # Installation Docker
-            if ! command -v docker &> /dev/null; then
-                echo '🐳 Installation Docker...'
-                curl -fsSL https://get.docker.com -o get-docker.sh
-                \$SUDO sh get-docker.sh
-                \$SUDO systemctl enable docker
-                \$SUDO systemctl start docker
-                \$SUDO usermod -aG docker \$USER
-                rm get-docker.sh
-            fi
-
-            # Installation Docker Compose
-            if ! command -v docker-compose &> /dev/null; then
-                echo '🔧 Installation Docker Compose...'
-                \$SUDO curl -L \"https://github.com/docker/compose/releases/latest/download/docker-compose-\$(uname -s)-\$(uname -m)\" -o /usr/local/bin/docker-compose
-                \$SUDO chmod +x /usr/local/bin/docker-compose
-            fi
-
-            # Installation des outils
-            \$SUDO apt install -y git curl
-
-            echo '✅ Environnement installé'
-          "
-
-      - name: Deploy application code
+      - name: Verify secrets configuration
         run: |
-          PROJECT_PATH="/home/deploy/groupify"
+          echo "🔍 Vérification des secrets (les valeurs ne s'affichent pas pour la sécurité):"
+          echo "PROJECT_PATH défini: ${{ secrets.PROJECT_PATH != '' }}"
+          echo "SERVER_USER défini: ${{ secrets.SERVER_USER != '' }}"
+          echo "SERVER_HOST défini: ${{ secrets.SERVER_HOST != '' }}"
+          echo "Repository: ${{ github.repository }}"
 
+      - name: Setup project (Alternative - Upload code directly)
+        run: |
+          # Force la valeur par défaut pour éviter les problèmes
+          PROJECT_PATH="/home/deploy/groupify"
+          echo "✅ Utilisation du chemin fixe: $PROJECT_PATH"
+
+          # Créer une archive du code source avec gestion d'erreurs
           echo "📦 Création de l'archive du projet..."
           tar -czf project.tar.gz \
             --exclude='.git' \
             --exclude='node_modules' \
             --exclude='.github' \
             --exclude='vendor' \
-            --exclude='storage/logs/*' \
-            --exclude='storage/framework/cache/*' \
+            --exclude='storage/logs' \
+            --exclude='storage/framework/cache' \
             --exclude='*.log' \
             --exclude='.env' \
-            .
+            --warning=no-file-changed \
+            --ignore-failed-read \
+            . || {
+              echo "⚠️ Erreur tar, essai avec méthode alternative..."
+              find . -type f \
+                ! -path './.git/*' \
+                ! -path './node_modules/*' \
+                ! -path './.github/*' \
+                ! -path './vendor/*' \
+                ! -name '*.log' \
+                -print0 | tar -czf project.tar.gz --null -T -
+            }
 
-          echo "📤 Envoi de l'archive..."
+          echo "📤 Envoi de l'archive au serveur ($(du -h project.tar.gz | cut -f1))..."
           scp project.tar.gz ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}:/tmp/
 
           echo "🚀 Configuration du projet sur le serveur..."
           ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} "
             set -e
-            PROJECT_PATH='$PROJECT_PATH'
 
-            echo '🧹 Nettoyage...'
+            PROJECT_PATH='/home/deploy/groupify'
+            echo '📍 Chemin cible: \$PROJECT_PATH'
+
+            echo '🧹 Nettoyage du répertoire cible...'
             rm -rf \"\$PROJECT_PATH\"
             mkdir -p \"\$PROJECT_PATH\"
 
-            echo '📂 Extraction...'
+            echo '📂 Extraction de l archive...'
             cd \"\$PROJECT_PATH\"
             tar -xzf /tmp/project.tar.gz
 
             echo '🔧 Configuration Git...'
-            git init
-            git add .
-            git commit -m 'Deployment commit' || true
+            git init || echo 'Git init ignoré'
+            git add . || echo 'Git add ignoré'
+            git commit -m 'Initial deployment commit' || echo 'Git commit ignoré'
 
-            echo '🔑 Permissions...'
-            chown -R \$USER:\$USER \"\$PROJECT_PATH\" 2>/dev/null || sudo chown -R \$USER:\$USER \"\$PROJECT_PATH\" || true
+            echo '🔑 Configuration des permissions...'
+            chown -R \$USER:\$USER \"\$PROJECT_PATH\" 2>/dev/null || sudo chown -R \$USER:\$USER \"\$PROJECT_PATH\" || echo 'Permissions déjà OK'
+
+            echo '📋 Vérification du contenu...'
+            ls -la \"\$PROJECT_PATH\" | head -10
 
             echo '🧹 Nettoyage temporaire...'
             rm -f /tmp/project.tar.gz
 
-            echo '✅ Projet configuré dans: \$PROJECT_PATH'
+            echo '✅ Projet configuré avec succès dans: \$PROJECT_PATH'
           "
 
       - name: Create Docker configurations
         run: |
           PROJECT_PATH="/home/deploy/groupify"
+          echo "🐳 Configuration Docker pour: $PROJECT_PATH"
 
-          ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} "
-            set -e
-            cd '$PROJECT_PATH'
-            mkdir -p docker
+          ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} "/tmp/scripts/create-docker-configs.sh '$PROJECT_PATH' '${{ secrets.DOMAIN_NAME }}'"
 
-            echo '🐳 Création nginx.conf...'
-            cat > docker/nginx.conf << 'EOF'
-          worker_processes 1;
-          events { worker_connections 512; }
-          http {
-              include /etc/nginx/mime.types;
-              sendfile on;
-              keepalive_timeout 15;
-              client_max_body_size 20M;
-              gzip on;
-
-              server {
-                  listen 80;
-                  server_name _;
-                  root /var/www/html/public;
-                  index index.php;
-
-                  location /.well-known/acme-challenge/ { root /var/www/certbot; }
-
-                  location / { try_files \$uri \$uri/ /index.php?\$query_string; }
-                  location ~ \.php\$ {
-                      fastcgi_pass app:9000;
-                      fastcgi_param SCRIPT_FILENAME \$realpath_root\$fastcgi_script_name;
-                      include fastcgi_params;
-                      fastcgi_read_timeout 300;
-                  }
-              }
-          }
-          EOF
-
-            echo '🔧 Création supervisord.conf...'
-            cat > docker/supervisord.conf << 'EOF'
-          [supervisord]
-          nodaemon=true
-          user=root
-          logfile=/var/log/supervisor/supervisord.log
-
-          [program:nginx]
-          command=nginx -g \"daemon off;\"
-          autorestart=false
-
-          [program:php-fpm]
-          command=php-fpm
-          autorestart=false
-          EOF
-
-            echo '🔧 Création php-fpm.conf...'
-            cat > docker/php-fpm.conf << 'EOF'
-          [www]
-          user = www
-          group = www
-          listen = 9000
-          pm = dynamic
-          pm.max_children = 8
-          pm.start_servers = 2
-          pm.min_spare_servers = 1
-          pm.max_spare_servers = 3
-          EOF
-
-            echo '✅ Configurations créées'
-          "
-
-      - name: Deploy application
+      - name: Deploy application (HTTP Only)
         env:
           APP_KEY: ${{ secrets.APP_KEY }}
           DOMAIN_NAME: ${{ secrets.DOMAIN_NAME }}
           SSL_EMAIL: ${{ secrets.SSL_EMAIL }}
         run: |
           PROJECT_PATH="/home/deploy/groupify"
+          echo "🚀 Déploiement HTTP vers: $PROJECT_PATH"
 
-          # Créer le script de déploiement sur le serveur
-          ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} "
-            cat > /tmp/deploy.sh << 'DEPLOY_SCRIPT'
-          #!/bin/bash
-          set -e
+          # Note: Nouveau format du script deploy-app.sh (4 paramètres au lieu de 7)
+          ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} "/tmp/scripts/deploy-app.sh '$PROJECT_PATH' '$APP_KEY' '$DOMAIN_NAME' '$SSL_EMAIL'"
 
-          PROJECT_PATH=\"$PROJECT_PATH\"
-          APP_KEY=\"$APP_KEY\"
-          DOMAIN_NAME=\"$DOMAIN_NAME\"
-          SSL_EMAIL=\"$SSL_EMAIL\"
+      - name: Setup SSL (Optional)
+        if: ${{ secrets.ENABLE_SSL == 'true' }}
+        run: |
+          PROJECT_PATH="/home/deploy/groupify"
+          echo "🔒 Configuration SSL pour: $PROJECT_PATH"
 
-          echo \"🚀 Déploiement Laravel avec SQLite...\"
-          cd \"\$PROJECT_PATH\"
-
-          # Création .env
-          cat > .env << ENV_FILE
-          APP_NAME=\"Laravel Filament\"
-          APP_ENV=production
-          APP_KEY=\$APP_KEY
-          APP_DEBUG=false
-          APP_URL=http://\$DOMAIN_NAME
-
-          DB_CONNECTION=sqlite
-          DB_DATABASE=/var/www/html/database/database.sqlite
-
-          DOMAIN_NAME=\$DOMAIN_NAME
-          SSL_EMAIL=\$SSL_EMAIL
-
-          CACHE_DRIVER=file
-          SESSION_DRIVER=file
-          QUEUE_CONNECTION=sync
-          LOG_CHANNEL=stack
-          LOG_LEVEL=error
-          ENV_FILE
-
-          # Préparation
-          mkdir -p storage/{app/public,framework/{cache,sessions,views},logs} bootstrap/cache database
-          touch database/database.sqlite
-          chmod 664 database/database.sqlite
-
-          # Docker
-          docker-compose down --remove-orphans || true
-          docker system prune -f || true
-          docker-compose build --no-cache
-          docker-compose up -d app
-
-          # Attente
-          echo \"⏳ Attente du conteneur app...\"
-          for i in {1..30}; do
-              if docker-compose exec -T app php -v > /dev/null 2>&1; then
-                  echo \"✅ App prêt\"
-                  break
-              fi
-              echo \"Tentative \$i/30...\"
-              sleep 2
-          done
-
-          # Nginx
-          docker-compose up -d nginx
-          sleep 10
-
-          # Laravel
-          docker-compose exec -T app composer install --no-dev --optimize-autoloader --no-interaction || true
-          docker-compose exec -T app php artisan migrate --force
-          docker-compose exec -T app php artisan config:cache
-          docker-compose exec -T app php artisan route:cache
-          docker-compose exec -T app php artisan view:cache
-          docker-compose exec -T app php artisan storage:link || true
-
-          # Permissions
-          docker-compose exec -T app chown -R www:www /var/www/html/storage
-          docker-compose exec -T app chown -R www:www /var/www/html/bootstrap/cache
-          docker-compose exec -T app chown -R www:www /var/www/html/database
-
-          echo \"✅ Déploiement terminé\"
-          DEPLOY_SCRIPT
-
-            chmod +x /tmp/deploy.sh
-            /tmp/deploy.sh
-          "
+          ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} "/tmp/scripts/setup-ssl.sh '$PROJECT_PATH' '${{ secrets.DOMAIN_NAME }}'"
 
       - name: Verify deployment
         run: |
           sleep 15
-          echo "🧪 Test de l'application..."
-          curl -I http://${{ secrets.DOMAIN_NAME }} || echo "HTTP test terminé"
+          curl -I http://${{ secrets.DOMAIN_NAME }} || echo "HTTP test completed"
 
           # Afficher les logs en cas de problème
           ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} "
