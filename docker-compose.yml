@@ -12,8 +12,6 @@ services:
             - ./storage:/var/www/html/storage
             - ./bootstrap/cache:/var/www/html/bootstrap/cache
             - ./database:/var/www/html/database
-            - ./docker/supervisord.conf:/etc/supervisor/conf.d/supervisord.conf
-            - ./docker/php-fpm.conf:/usr/local/etc/php-fpm.d/www.conf
         networks:
             - laravel_network
         mem_limit: 512m
@@ -22,7 +20,7 @@ services:
             test: ["CMD", "php", "-v"]
             timeout: 10s
             retries: 5
-            start_period: 30s
+            start_period: 20s
 
     nginx:
         image: nginx:alpine
@@ -39,10 +37,6 @@ services:
         networks:
             - laravel_network
         mem_limit: 64m
-        healthcheck:
-            test: ["CMD", "nginx", "-t"]
-            timeout: 10s
-            retries: 3
 
 networks:
     laravel_network:
