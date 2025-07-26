@@ -1,7 +1,7 @@
-# Dockerfile - Version SQLite robuste avec étapes séparées
-FROM php:8.4-fpm-alpine
+# Dockerfile optimisé pour Laravel avec SQLite
+FROM php:8.3-fpm-alpine
 
-# Étape 1: Installation des packages système (avec sqlite-dev pour les headers)
+# Installation des packages système
 RUN apk add --no-cache \
     git \
     curl \
@@ -15,85 +15,87 @@ RUN apk add --no-cache \
     icu-dev \
     libzip-dev \
     sqlite \
-    sqlite-dev
+    sqlite-dev \
+    && docker-php-ext-configure intl \
+    && docker-php-ext-configure zip
 
-# Étape 2: Configuration Git
-RUN git config --global --add safe.directory /var/www/html
+# Installation des extensions PHP
+RUN docker-php-ext-install \
+    pdo_sqlite \
+    mbstring \
+    exif \
+    pcntl \
+    bcmath \
+    gd \
+    opcache \
+    intl \
+    zip
 
-# Étape 3: Configuration des extensions PHP
-RUN docker-php-ext-configure intl
-RUN docker-php-ext-configure zip
-
-# Étape 4: Installation des extensions PHP (seulement les essentielles pour SQLite)
-RUN docker-php-ext-install pdo_sqlite
-RUN docker-php-ext-install mbstring
-RUN docker-php-ext-install exif
-RUN docker-php-ext-install pcntl
-RUN docker-php-ext-install bcmath
-RUN docker-php-ext-install gd
-RUN docker-php-ext-install opcache
-RUN docker-php-ext-install intl
-RUN docker-php-ext-install zip
-
-# Étape 5: Vérification des extensions essentielles
-RUN php -m | grep -E "(pdo_sqlite|mbstring)" || echo "⚠️ Extensions critiques manquantes"
-
-# Étape 6: Création des utilisateurs et répertoires
-RUN addgroup -g 1000 -S www
-RUN adduser -u 1000 -S www -G www
-RUN mkdir -p /var/log/supervisor /var/run/supervisor /etc/supervisor/conf.d
-
-# Étape 7: Installation de Composer
-COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
-
-# Étape 8: Configuration PHP
+# Configuration PHP optimisée
 RUN echo "memory_limit=256M" > /usr/local/etc/php/conf.d/custom.ini && \
     echo "max_execution_time=300" >> /usr/local/etc/php/conf.d/custom.ini && \
-    echo "opcache.enable=1" >> /usr/local/etc/php/conf.d/custom.ini
+    echo "opcache.enable=1" >> /usr/local/etc/php/conf.d/custom.ini && \
+    echo "opcache.memory_consumption=64" >> /usr/local/etc/php/conf.d/custom.ini
 
-# Étape 9: Configuration du workdir
+# Création des utilisateurs et répertoires
+RUN addgroup -g 1000 -S www && \
+    adduser -u 1000 -S www -G www && \
+    mkdir -p /var/log/supervisor /var/run/supervisor /etc/supervisor/conf.d
+
+# Installation de Composer
+COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
+
+# Configuration du workdir
 WORKDIR /var/www/html
 
-# Étape 10: Copie des fichiers
+# Copie des fichiers avec bonnes permissions
 COPY --chown=www:www . /var/www/html
 
-# Étape 11: Installation Composer avec fallback
+# Installation des dépendances Composer
 RUN if [ -f composer.json ]; then \
-        echo "📦 Installation Composer..." && \
-        (composer install --no-dev --optimize-autoloader --no-interaction --ignore-platform-reqs || \
-         (echo "⚠️ Retry sans lock..." && rm -f composer.lock && \
-          composer install --no-dev --optimize-autoloader --no-interaction --ignore-platform-reqs)); \
+        composer install --no-dev --optimize-autoloader --no-interaction --ignore-platform-reqs || \
+        (rm -f composer.lock && composer install --no-dev --optimize-autoloader --no-interaction --ignore-platform-reqs); \
     fi
 
-# Étape 12: Création des répertoires et permissions
-RUN mkdir -p storage bootstrap/cache database && \
+# Création des répertoires et permissions
+RUN mkdir -p storage/{app/public,framework/{cache,sessions,views},logs} bootstrap/cache database && \
     touch database/database.sqlite && \
     chmod -R 775 storage bootstrap/cache database && \
     chown -R www:www /var/www/html
 
-# Étape 13: Script d'entrée
+# Script d'entrée robuste
 RUN cat > /usr/local/bin/docker-entrypoint.sh << 'EOF'
 #!/bin/bash
 set -e
-echo "🚀 Démarrage Laravel avec SQLite..."
 
-# Créer/vérifier SQLite
+echo "🚀 Starting Laravel application..."
+
+# Vérifier SQLite
 if [ ! -f /var/www/html/database/database.sqlite ]; then
-    echo "📄 Création SQLite..."
+    echo "📄 Creating SQLite database..."
     touch /var/www/html/database/database.sqlite
     chown www:www /var/www/html/database/database.sqlite
+    chmod 664 /var/www/html/database/database.sqlite
 fi
 
-# Vérifier les extensions critiques
-echo "🔍 Extensions PHP critiques:"
-php -m | grep -E "(pdo_sqlite|Core|mbstring)" | head -3
+# Vérifier les répertoires
+mkdir -p storage/{app/public,framework/{cache,sessions,views},logs} bootstrap/cache
+chown -R www:www storage bootstrap/cache database
 
-echo "✅ Démarrage supervisord..."
+# Vérifier les extensions critiques
+echo "🔍 Checking critical PHP extensions:"
+php -m | grep -E "(pdo_sqlite|mbstring|Core)" | head -3
+
+# Test de base de la configuration
+echo "🧪 Testing basic PHP functionality..."
+php -r "echo 'PHP OK: ' . phpversion() . PHP_EOL;"
+
+echo "✅ Starting supervisord..."
 exec /usr/bin/supervisord -c /etc/supervisor/conf.d/supervisord.conf
 EOF
 
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
-EXPOSE 80
+EXPOSE 9000
 
 CMD ["/usr/local/bin/docker-entrypoint.sh"]
