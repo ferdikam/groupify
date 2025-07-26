@@ -123,13 +123,6 @@ jobs:
           # Note: Nouveau format du script deploy-app.sh (4 paramètres au lieu de 7)
           ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} "/tmp/scripts/deploy-app.sh '$PROJECT_PATH' '$APP_KEY' '$DOMAIN_NAME' '$SSL_EMAIL'"
 
-      - name: Setup SSL (Optional)
-        if: ${{ secrets.ENABLE_SSL == 'true' }}
-        run: |
-          PROJECT_PATH="/home/deploy/groupify"
-          echo "🔒 Configuration SSL pour: $PROJECT_PATH"
-
-          ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} "/tmp/scripts/setup-ssl.sh '$PROJECT_PATH' '${{ secrets.DOMAIN_NAME }}'"
 
       - name: Verify deployment
         run: |
