@@ -64,7 +64,7 @@ RUN mkdir -p storage/{app/public,framework/{cache,sessions,views},logs} bootstra
     chown -R www:www /var/www/html
 
 # Script d'entrée robuste
-RUN cat > /usr/local/bin/docker-entrypoint.sh << 'EOF'
+RUN cat > /usr/local/bin/docker-entrypoint.sh << 'ENTRY_EOF'
 #!/bin/bash
 set -e
 
@@ -92,7 +92,7 @@ php -r "echo 'PHP OK: ' . phpversion() . PHP_EOL;"
 
 echo "✅ Starting supervisord..."
 exec /usr/bin/supervisord -c /etc/supervisor/conf.d/supervisord.conf
-EOF
+ENTRY_EOF
 
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
