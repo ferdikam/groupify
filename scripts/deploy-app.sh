@@ -12,7 +12,7 @@ cd "$PROJECT_PATH"
 
 # Création du fichier .env pour SQLite
 cat > .env << EOF
-APP_NAME="Laravel Filament"
+APP_NAME="Groupify"
 APP_ENV=production
 APP_KEY=$APP_KEY
 APP_DEBUG=false
@@ -20,7 +20,7 @@ APP_URL=http://$DOMAIN_NAME
 
 # Configuration SQLite
 DB_CONNECTION=sqlite
-DB_DATABASE=/var/www/html/database/database.sqlite
+# DB_DATABASE=/var/www/html/database/database.sqlite
 
 # Variables pour Docker/SSL
 DOMAIN_NAME=$DOMAIN_NAME
