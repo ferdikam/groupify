@@ -286,17 +286,6 @@ jobs:
             /tmp/deploy.sh
           "
 
-      - name: Setup SSL (Optional)
-        if: ${{ secrets.ENABLE_SSL == 'true' }}
-        run: |
-          PROJECT_PATH="/home/deploy/groupify"
-
-          ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} "
-            cd '$PROJECT_PATH'
-            echo '🔒 Configuration SSL...'
-            docker-compose --profile ssl run --rm certbot || echo '⚠️ SSL non configuré - vérifiez que le domaine pointe vers ce serveur'
-          "
-
       - name: Verify deployment
         run: |
           sleep 15
